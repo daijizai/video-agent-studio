@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory() as tmp:
             assert 'fake-browser-test-key-never-real' not in page.content()
             page.get_by_role('link',name='04 分镜工作台').click();page.get_by_role('button',name='预览请求与估价',exact=True).click();page.get_by_text('Wan3北京原价预占',exact=False).wait_for()
             assert 'wan3.0-video' in page.locator('#provider-result').inner_text()
-            assert not page.get_by_role('button',name='提交供应商 · 付费未授权').is_enabled()
+            assert not page.get_by_role('button',name='提交供应商 · 视频未授权').is_enabled()
             for name in ['执行与检查','角色资产库','制作总览']:
                 page.locator('nav').get_by_role('link',name=name).click()
             for width in [375,768,1440]:

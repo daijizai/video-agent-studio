@@ -14,7 +14,7 @@ class ProviderContracts(unittest.TestCase):
         self.assertEqual(prepared['payload']['parameters']['size'],'1280*720')
         transport.assert_not_called()
         with patch.dict(os.environ,{'DASHSCOPE_API_KEY':'test-secret','WAN_WORKSPACE_ID':'workspace-test','STUDIO_ENABLE_PAID_GENERATION':'true'}):
-            self.assertEqual(p.submit(prepared,'local-id'),'wan-123')
+            self.assertEqual(p.submit(prepared,'local-id',authorized=True),'wan-123')
             args=transport.call_args[0]
             self.assertEqual(args[0],'POST');self.assertIn('workspace-test.cn-beijing.maas.aliyuncs.com',args[1]);self.assertEqual(args[2]['X-DashScope-Async'],'enable')
     def test_wan3_official_contract(self):
@@ -26,7 +26,7 @@ class ProviderContracts(unittest.TestCase):
         self.assertNotIn('reference_urls',r['payload']['input']);self.assertNotIn('size',r['payload']['parameters'])
         self.assertEqual(r['payload']['parameters']['resolution'],'480P')
         with patch.dict(os.environ,{'WAN3_API_KEY':'fake-wan3-secret','STUDIO_ENABLE_PAID_GENERATION':'true'}):
-            self.assertEqual(p.submit(r,'local-intent'),'wan3-123')
+            self.assertEqual(p.submit(r,'local-intent',authorized=True),'wan3-123')
         self.assertTrue(request.call_args[0][1].startswith('https://cn-beijing.maas.qianwenaiapi.com/api/v1/'))
         t2v=p.prepare({**self.shot,'reference_images':[],'duration':30},{'resolution':'720p'})
         self.assertNotIn('media',t2v['payload']['input']);self.assertEqual(t2v['estimated_cny'],18)

@@ -32,7 +32,7 @@ class StudioTests(unittest.TestCase):
             self.assertEqual(self.post('submit',{'shot_id':sid})[0],200)
             self.assertEqual(mock.call_args[0][2]['prompt']['1']['inputs']['text'],server.read()['shots'][0]['prompt'])
             self.assertEqual(self.post('submit',{'shot_id':sid})[0],400);self.assertEqual(mock.call_count,1)
-        t=server.read()['tasks'][0];self.assertEqual(t['provider_task_id'],'real-test-id')
+        t=server.read()['tasks'][0];self.assertEqual(t['content_snapshot']['shot']['prompt'],server.read()['shots'][0]['prompt']);self.assertIn('content_revision',t);self.assertEqual(t['content_snapshot']['shot']['status'],'待确认');self.assertEqual(t['provider_task_id'],'real-test-id')
         with patch.object(server,'remote',return_value={'real-test-id':{'status':{'completed':True},'outputs':{}}}):
             self.assertEqual(self.post('poll',{'task_id':t['id']})[1]['tasks'][0]['status'],'completed')
     def test_timeout_locks_retry(self):
@@ -86,6 +86,13 @@ class StudioTests(unittest.TestCase):
         self.assertEqual(code,200);self.assertGreater(fresh['revision'],stale['revision'])
         code,_=self.post('save',{'script':'stale overwrite','project_id':stale['project_id'],'revision':stale['revision']})
         self.assertEqual(code,400);self.assertEqual(server.read()['script'],'first edit')
+    def test_demo_target_does_not_limit_series(self):
+        self.assertEqual(server.read()['target_duration'],30)
+        code,new=self.post('projects/new',{'title':'Longer series'})
+        self.assertEqual(code,200);self.assertEqual(new['target_duration'],120)
+        shots=[{'id':'longer','name':'series segment','duration':31,'estimate':0,'prompt':'draft','approved':False}]
+        self.assertEqual(self.post('save',{'shots':shots})[0],200)
+        self.assertEqual(server.read()['shots'][0]['duration'],31)
     def test_remote_host_restriction(self):
         for url in ['http://localhost.evil.test','http://127.0.0.1.evil.test','https://localhost','http://user@localhost','http://localhost/path']:
             with self.assertRaises(ValueError):server.remote(url,'/system_stats')

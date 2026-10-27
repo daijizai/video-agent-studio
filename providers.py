@@ -4,6 +4,7 @@ import json
 import os
 import re
 import urllib.request
+import urllib.error
 import urllib.parse
 from decimal import Decimal, ROUND_UP
 
@@ -14,7 +15,7 @@ CATALOG = {
 }
 
 def paid_enabled():
-    return os.getenv('STUDIO_ENABLE_PAID_GENERATION') == 'true'
+    return False  # No global paid unlock: the backend validates finite project scopes.
 
 def config_status():
     return [{**v, 'id': k, 'credential_present': bool(secret_store.get_key(v['key_env'])),
@@ -22,6 +23,10 @@ def config_status():
              'connection': 'unverified', 'paid_enabled': paid_enabled()}
             for k, v in CATALOG.items()]
 
+class ProviderHTTPError(RuntimeError):
+    def __init__(self,status,code,message,headers):
+        self.details={'http_status':status,'provider_code':code,'message':secret_store.redact(message),'headers':secret_store.redact(headers)}
+        super().__init__('供应商HTTP %s / %s；请核对原任务，不自动重试'%(status,code))
 def transport(method, url, headers, payload=None):
     req = urllib.request.Request(url, method=method, headers=headers,
                                  data=json.dumps(payload).encode() if payload is not None else None)
@@ -32,6 +37,14 @@ def transport(method, url, headers, payload=None):
     try:
         with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as response:
             return json.load(response)
+    except urllib.error.HTTPError as error:
+        try:
+            body=json.load(error);code=body.get('code') or body.get('error',{}).get('code') or 'HTTPError'
+            code=code if isinstance(code,str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,100}',code) else 'HTTPError'
+        except Exception:body={};code='HTTPError'
+        message=str(body.get('message',''))[:500]
+        safe_headers={k:error.headers[k] for k in ('Retry-After','X-RateLimit-Limit','X-RateLimit-Remaining','X-RateLimit-Reset','X-Request-Id') if error.headers and error.headers.get(k)}
+        raise ProviderHTTPError(error.code,code,message,safe_headers) from None
     except Exception:
         raise RuntimeError('供应商请求失败或超时；请核对原任务，不要自动重试') from None
 
@@ -80,7 +93,9 @@ class Provider:
         if type(audio) is not bool: raise ValueError('audio 必须为布尔值')
         if self.id == 'wan3':
             if resolution not in ('480p','720p','1080p'):raise ValueError('Wan3支持480p/720p/1080p')
-            payload={'model':'wan3.0-video','input':{'prompt':prompt},'parameters':{'resolution':resolution.upper(),'ratio':'16:9','duration':duration,'audio':audio,'watermark':True,'prompt_extend':False}}
+            ratio=config.get('ratio','16:9')
+            if ratio not in ('16:9','9:16','1:1'):raise ValueError('未支持的画幅比例')
+            payload={'model':'wan3.0-video','input':{'prompt':prompt},'parameters':{'resolution':resolution.upper(),'ratio':ratio,'duration':duration,'audio':audio,'watermark':True,'prompt_extend':False}}
             if refs:payload['input']['media']=[{'type':'reference_image','url':url} for url in refs]
             estimate=Decimal({'480p':'0.30','720p':'0.60','1080p':'1.20'}[resolution])*duration
             note='Wan3北京原价预占；页面限时7折未抵扣，音频开关同价；仅图片/文本输入'
@@ -104,8 +119,8 @@ class Provider:
         return {'provider': self.id, 'payload': payload, 'estimated_cny': float(estimate.quantize(Decimal('.01'), rounding=ROUND_UP)),
                 'currency': 'CNY', 'price_checked': '2026-10-28', 'note': note, 'network_called': False}
 
-    def submit(self, prepared, idempotency_key):
-        if not paid_enabled(): raise ValueError('付费生成未授权：STUDIO_ENABLE_PAID_GENERATION 默认为 false')
+    def submit(self, prepared, idempotency_key, authorized=False):
+        if not authorized: raise ValueError('付费生成未授权：STUDIO_ENABLE_PAID_GENERATION 默认为 false')
         headers = self.headers()
         # idempotency_key is a local durable intent identifier; neither API is assumed to deduplicate it.
         path = '/services/aigc/video-generation/video-synthesis' if self.id in ('wan','wan3') else '/contents/generations/tasks'
@@ -117,7 +132,8 @@ class Provider:
     def status(self, task_id):
         if not re.fullmatch(r'[A-Za-z0-9_-]+', task_id): raise ValueError('非法任务编号')
         path = '/tasks/' if self.id in ('wan','wan3') else '/contents/generations/tasks/'
-        response = self.request('GET', self.base_url() + path + task_id, self.headers())
+        headers=self.headers();headers.pop('X-DashScope-Async',None)
+        response = self.request('GET', self.base_url() + path + task_id, headers)
         if self.id in ('wan','wan3'):
             output = response.get('output', {})
             status = {'PENDING': 'queued', 'RUNNING': 'running', 'SUCCEEDED': 'completed', 'FAILED': 'failed', 'CANCELED': 'cancelled'}.get(output.get('task_status'), 'unknown')

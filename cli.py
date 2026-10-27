@@ -18,6 +18,13 @@ def main():
         if name=='shots':
             p=actions.add_parser('approve');p.add_argument('id');p.add_argument('--revoke',action='store_true')
             p=actions.add_parser('review');p.add_argument('id');p.add_argument('--file',required=True,help='UTF-8 review')
+    audit=sub.add_parser('audit').add_subparsers(dest='action',required=True)
+    for name in ('sources','history','tasks'):audit.add_parser(name)
+    images=sub.add_parser('images').add_subparsers(dest='action',required=True)
+    images.add_parser('list')
+    for name in ('preview','submit','status'):
+        p=images.add_parser(name);p.add_argument('id')
+        if name=='submit':p.add_argument('--redo',action='store_true')
     tasks=sub.add_parser('tasks').add_subparsers(dest='action',required=True)
     tasks.add_parser('list')
     for name in ('preview','submit'):
@@ -25,7 +32,7 @@ def main():
         if name=='submit':p.add_argument('--engine',choices=['provider','comfy'],default='provider')
     p=tasks.add_parser('status');p.add_argument('id')
     settings=sub.add_parser('provider').add_subparsers(dest='action',required=True)
-    settings.add_parser('status');p=settings.add_parser('configure');p.add_argument('--provider',choices=['wan3','wan','seedance'],default='wan3');p.add_argument('--resolution',choices=['480p','720p','1080p'],default='720p');p.add_argument('--audio',action='store_true')
+    settings.add_parser('status');p=settings.add_parser('configure');p.add_argument('--provider',choices=['wan3','wan','seedance'],default='wan3');p.add_argument('--resolution',choices=['480p','720p','1080p'],default='720p');p.add_argument('--audio',action='store_true');p.add_argument('--ratio',choices=['16:9','9:16','1:1'],default='16:9')
     p=sub.add_parser('secret');p.add_argument('--provider',choices=['wan3','wan','seedance'],default='wan3')
     p=sub.add_parser('budget');p.add_argument('amount',type=float)
     sub.add_parser('export')
@@ -55,7 +62,7 @@ def main():
             else:result=api('projects/switch',{'project_id':args.id})
         elif group=='provider':
             if args.action=='status':result=api('providers')
-            else:result=api('settings',{'provider':args.provider,'resolution':args.resolution,'audio':args.audio},api('state'))
+            else:result=api('settings',{'provider':args.provider,'resolution':args.resolution,'audio':args.audio,'ratio':args.ratio},api('state'))
         elif group=='secret':
             # No --key or plaintext argv, no stdin fallback that echoes input.
             if not sys.stdin.isatty():raise ValueError('密钥配置须在交互终端运行；不可通过命令行参数或管道输入')
@@ -63,7 +70,14 @@ def main():
             result=api('credentials',{'provider':args.provider,'value':value},api('state'));value=None
         else:
             state=api('state')
-            if group=='export':result=api('export')
+            if group=='audit':
+                if args.action=='sources':result=state.get('source_manifest',[])
+                elif args.action=='history':result=api('revisions')
+                else:result=state.get('image_tasks',[])+state['tasks']
+            elif group=='images':
+                if args.action=='list':result=state.get('image_tasks',[])
+                else:result=api({'preview':'image/prepare','submit':'image/submit','status':'image/poll'}[args.action],{'task_id' if args.action=='status' else 'shot_id':args.id,**({'redo':args.redo} if args.action=='submit' else {})},state)
+            elif group=='export':result=api('export')
             elif group=='budget':result=api('save',{'budget':args.amount},state)
             elif group=='script':
                 if args.action=='get':result={k:state[k] for k in ('project_id','title','script','continuity','revision')}

@@ -42,9 +42,11 @@ def redact(value):
     try: values=list(stored().values())
     except ValueError:values=[]
     values += [os.getenv(k,'') for k in ALLOWED]
-    if isinstance(value,dict):return {k:redact(v) for k,v in value.items()}
-    if isinstance(value,list):return [redact(v) for v in value]
-    if isinstance(value,str):
-        for token in values:
-            if token:value=value.replace(token,'[REDACTED]')
-    return value
+    def clean(item):
+        if isinstance(item,dict):return {k:clean(v) for k,v in item.items()}
+        if isinstance(item,list):return [clean(v) for v in item]
+        if isinstance(item,str):
+            for token in values:
+                if token:item=item.replace(token,'[REDACTED]')
+        return item
+    return clean(value)
