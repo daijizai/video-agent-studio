@@ -28,3 +28,15 @@ class FiniteScopeTests(unittest.TestCase):
    with self.assertRaises(ValueError):generation_scope.check(s,database,'image',.2,'qwen-image-3.0',shot_id='s0')
    with self.assertRaises(ValueError):generation_scope.extend_images(2,database,['s0'],.2,'duplicate approval')
    self.assertEqual(generation_scope.read()['2']['max_cny'],11);self.assertEqual(generation_scope.read()['2']['video_limit'],0)
+ def test_independent_budget_no_count_gate_no_borrow_and_unknown_not_zero(self):
+  with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'STUDIO_SECRET_FILE':str(Path(tmp)/'private'/'credentials.json')}):
+   database=Path(tmp)/'db.sqlite';generation_scope.authorize_budgets(2,database,3,7,'explicit separate budgets',8)
+   s={'project_id':2,'budget':1,'image_tasks':[{'id':str(i),'shot_id':'s','status':'completed','estimate':.2,'actual_cost_cny':None} for i in range(8)],'tasks':[{'id':'v','status':'unknown','estimate':6,'actual_cost_cny':None}]}
+   summary=generation_scope.budget_summary(s,database);self.assertEqual(summary['image']['remaining_cny'],1.4);self.assertIsNone(summary['image']['actual_total_cny']);self.assertEqual(summary['image']['actual_unknown_tasks'],8)
+   self.assertTrue(generation_scope.check(s,database,'image',.22,'qwen-image-3.0',shot_id='new-shot'))
+   with self.assertRaises(ValueError):generation_scope.check(s,database,'image',1.5,'qwen-image-3.0')
+   with self.assertRaises(ValueError):generation_scope.check(s,database,'video',2,'wan3.0-video')
+   self.assertFalse(generation_scope.active(1,database));self.assertEqual(summary['image']['authorization']['content_revision'],8)
+ def test_unknown_bill_and_live_partial_are_conservative(self):
+  s={'image_tasks':[{'status':'completed','estimate':.2,'actual_cost_cny':None},{'status':'unknown','estimate':.3,'actual_cost_cny':None},{'status':'completed','estimate':.2,'actual_cost_cny':.1},{'status':'rejected','estimate':.2}],'tasks':[]}
+  r=generation_scope.category_ledger(s,'image',1);self.assertEqual(r['committed_cny'],.6);self.assertEqual(r['remaining_cny'],.4);self.assertEqual(r['actual_known_cny'],.1);self.assertIsNone(r['actual_total_cny']);self.assertEqual(r['actual_unknown_tasks'],2)

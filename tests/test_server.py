@@ -100,6 +100,16 @@ class StudioTests(unittest.TestCase):
         with patch.object(server.image_provider.ImageProvider,'status',return_value=result),patch.object(server,'cache_image',return_value='/media/1/old.png'):
             code,response=self.post('image/poll',{'task_id':'old'})
         self.assertEqual(code,200);self.assertEqual(response['shots'][0]['storyboard_local'],'/media/1/new.png');self.assertTrue(response['shots'][0]['approved']);self.assertEqual(response['shots'][0]['image_quality'],'approved')
+    def test_separate_budget_http_and_budgeted_video_redo(self):
+        import os
+        with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'STUDIO_SECRET_FILE':str(Path(tmp)/'private'/'credentials.json')}):
+            s=server.read();s['budget']=1;s['shots'][0].update(approved=True,estimate=1.5,duration=5,reference_images=[]);s['settings'].update(provider='wan3',resolution='480p');s['tasks']=[{'id':'old-video','shot_id':s['shots'][0]['id'],'name':'old','provider':'wan3','provider_task_id':'old-id','status':'completed','estimate':1.5}];server.save(s)
+            code,s=self.post('budgets/authorize',{'image_limit':3,'video_limit':7,'source':'test explicit category budget'})
+            self.assertEqual(code,200);self.assertTrue(s['shots'][0]['approved']);self.assertFalse(s['budget_authorizations'][-1]['quality_approval'])
+            with patch.object(server.providers.Provider,'headers',return_value={}),patch.object(server.providers.Provider,'submit',return_value='new-video-id') as submit:
+                self.assertEqual(self.post('provider/submit',{'shot_id':s['shots'][0]['id']})[0],400)
+                code,result=self.post('provider/submit',{'shot_id':s['shots'][0]['id'],'redo':True});self.assertEqual(code,200);self.assertEqual(result['tasks'][-1]['provider_task_id'],'new-video-id');self.assertEqual(submit.call_count,1)
+                self.assertEqual(self.post('provider/submit',{'shot_id':s['shots'][0]['id'],'redo':True})[0],400);self.assertEqual(submit.call_count,1)
     def test_remote_host_restriction(self):
         for url in ['http://localhost.evil.test','http://127.0.0.1.evil.test','https://localhost','http://user@localhost','http://localhost/path']:
             with self.assertRaises(ValueError):server.remote(url,'/system_stats')

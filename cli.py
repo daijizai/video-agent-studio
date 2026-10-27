@@ -29,11 +29,13 @@ def main():
     tasks.add_parser('list')
     for name in ('preview','submit'):
         p=tasks.add_parser(name);p.add_argument('shot_id')
-        if name=='submit':p.add_argument('--engine',choices=['provider','comfy'],default='provider')
+        if name=='submit':p.add_argument('--engine',choices=['provider','comfy'],default='provider');p.add_argument('--redo',action='store_true')
     p=tasks.add_parser('status');p.add_argument('id')
     settings=sub.add_parser('provider').add_subparsers(dest='action',required=True)
     settings.add_parser('status');p=settings.add_parser('configure');p.add_argument('--provider',choices=['wan3','wan','seedance'],default='wan3');p.add_argument('--resolution',choices=['480p','720p','1080p'],default='720p');p.add_argument('--audio',action='store_true');p.add_argument('--ratio',choices=['16:9','9:16','1:1'],default='16:9')
     p=sub.add_parser('secret');p.add_argument('--provider',choices=['wan3','wan','seedance'],default='wan3')
+    budgets=sub.add_parser('budgets').add_subparsers(dest='action',required=True)
+    budgets.add_parser('show');p=budgets.add_parser('authorize');p.add_argument('--image',type=float,required=True);p.add_argument('--video',type=float,required=True);p.add_argument('--source',required=True,help='Explicit human total-budget authorization source; not quality approval')
     p=sub.add_parser('budget');p.add_argument('amount',type=float)
     sub.add_parser('export')
     args=parser.parse_args()
@@ -63,6 +65,8 @@ def main():
         elif group=='provider':
             if args.action=='status':result=api('providers')
             else:result=api('settings',{'provider':args.provider,'resolution':args.resolution,'audio':args.audio,'ratio':args.ratio},api('state'))
+        elif group=='budgets':
+            result=api('budgets') if args.action=='show' else api('budgets/authorize',{'image_limit':args.image,'video_limit':args.video,'source':args.source},api('state'))
         elif group=='secret':
             # No --key or plaintext argv, no stdin fallback that echoes input.
             if not sys.stdin.isatty():raise ValueError('密钥配置须在交互终端运行；不可通过命令行参数或管道输入')
@@ -78,7 +82,10 @@ def main():
                 if args.action=='list':result=state.get('image_tasks',[])
                 else:result=api({'preview':'image/prepare','submit':'image/submit','status':'image/poll'}[args.action],{'task_id' if args.action=='status' else 'shot_id':args.id,**({'redo':args.redo} if args.action=='submit' else {})},state)
             elif group=='export':result=api('export')
-            elif group=='budget':result=api('save',{'budget':args.amount},state)
+            elif group=='budget':
+                budgets=api('budgets')
+                if budgets['image']['authorized'] or budgets['video']['authorized']:raise ValueError('已启用分类预算，请使用budgets show/authorize；不能修改旧合并预算来挪用额度')
+                result=api('save',{'budget':args.amount},state)
             elif group=='script':
                 if args.action=='get':result={k:state[k] for k in ('project_id','title','script','continuity','revision')}
                 else:
@@ -106,7 +113,7 @@ def main():
             elif group=='tasks':
                 if args.action=='list':result=state['tasks']
                 elif args.action=='preview':result=api('provider/preview',{'shot_id':args.shot_id},state)
-                elif args.action=='submit':result=api('provider/submit' if args.engine=='provider' else 'submit',{'shot_id':args.shot_id},state)
+                elif args.action=='submit':result=api('provider/submit' if args.engine=='provider' else 'submit',{'shot_id':args.shot_id,'redo':args.redo},state)
                 else:
                     task=next((t for t in state['tasks'] if t['id']==args.id),None)
                     if task is None:raise ValueError('任务不存在')

@@ -5,6 +5,8 @@ import server
 class CLIIntegration(unittest.TestCase):
     def test_cli_uses_backend_and_preserves_rules(self):
         with tempfile.TemporaryDirectory() as tmp:
+            from unittest.mock import patch
+            envpatch=patch.dict(os.environ,{'STUDIO_SECRET_FILE':str(Path(tmp)/'private'/'credentials.json')});envpatch.start()
             previous=server.DATA;server.DATA=Path(tmp)/'db';server.DATA.mkdir();server.init()
             http=server.ThreadingHTTPServer(('127.0.0.1',0),server.Handler);threading.Thread(target=http.serve_forever,daemon=True).start()
             def cli(*args,ok=True):
@@ -27,4 +29,6 @@ class CLIIntegration(unittest.TestCase):
                 cli('projects','select','1');self.assertNotEqual(cli('script','get')['data']['script'],script.read_text())
                 cli('projects','select',str(pid));self.assertEqual(cli('export')['data']['title'],'CLI film')
                 cli('tasks','status','missing',ok=False);cli('secret','--provider','wan3',ok=False)
-            finally:http.shutdown();http.server_close();server.DATA=previous
+                result=cli('budgets','authorize','--image','3','--video','7','--source','explicit test human budget');self.assertFalse(result['data']['budget_authorizations'][-1]['quality_approval'])
+                summary=cli('budgets','show')['data'];self.assertEqual(summary['image']['limit_cny'],3);self.assertEqual(summary['video']['limit_cny'],7);cli('budget','99',ok=False)
+            finally:http.shutdown();http.server_close();server.DATA=previous;envpatch.stop()

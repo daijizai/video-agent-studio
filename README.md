@@ -39,7 +39,7 @@ PORT=8766 python3 server.py
 
 按指定模型页使用北京接口 `https://cn-beijing.maas.qianwenaiapi.com/api/v1`，固定官方域名，不允许任意第三方 endpoint。平台详细文档另展示无地域前缀别名；当前不自动切换域名，也不把旧百炼 key 视作已验证兼容。跨账号、地域、套餐权限仍需用户账户核对。
 
-**没有全局付费开关**。生成授权保存在仓库外，绑定数据库、项目ID、模型、预算、任务次数和24小时有效期；`STUDIO_ENABLE_PAID_GENERATION` 已废弃且不能放开生成。用户对具体范围批准后，由本机受信操作调用 `generation_scope.grant(project_id, database_path, max_cny, image_limit, video_limit)` 建立有限授权；已有授权不能被此方法覆盖扩大。后续明确批准的修复用 `extend_images` 记录指定镜头、任务基线、每镜一次与增量费用上限，原总预算不变；其他镜头不能借此重生成。视频次数设为0时后端拒绝视频提交。本轮仅在授权范围内验证图片，未充值或购买套餐。Wan3预占使用原价，未依赖限时7折。参考输入当前仅支持最多10张 HTTPS 图片；不支持输入视频/音频、首尾帧或文件，以免遗漏输入秒数计费；后续可以在同一官方协议上扩展。
+**没有全局付费开关**。图片与视频预算按项目/数据库分别授权、记账，不互相挪用；预算含历史花费与未结算/在途预占，不是每次新增金额。未知实际费用不视为0，未经验证的免费额度不提前抵扣。标准分类预算模式不设任意每镜次数门槛，保留明确redo、单在途、未知提交锁和语义/质量门槛，预算内必要修复无需反复确认价格。超相应余额才请求调整额度；预算授权不等于画面质量批准。来源与版本存仓库外授权文件及SQLite快照，网页和CLI均可查看/设置。旧有限次数试验授权只作兼容和历史。Wan3预占使用原价，未依赖限时7折。参考输入当前仅支持最多10张 HTTPS 图片；不支持输入视频/音频、首尾帧或文件，以免遗漏输入秒数计费；后续可以在同一官方协议上扩展。
 
 ## FFmpeg 成片
 
@@ -61,6 +61,7 @@ python3 tests/browser_workspace.py
 python3 tests/browser_polling.py
 python3 tests/browser_video.py
 python3 tests/browser_lightbox.py
+python3 tests/browser_budgets.py
 ```
 
 - [图片分镜API与音频](docs/STORYBOARD_IMAGE_API.md)
@@ -101,10 +102,11 @@ python3 cli.py audit tasks
 python3 cli.py shots review SHOT_ID --file /path/to/review.txt
 python3 cli.py provider configure --provider wan3 --resolution 480p
 python3 cli.py provider status
-python3 cli.py budget 10
+python3 cli.py budgets show
+python3 cli.py budgets authorize --image 3 --video 7 --source "用户明确的两项总预算授权来源"
 python3 cli.py export
 ```
 
-`tasks submit` 仍受付费关闭、审批、预算、防重限制。Codex不得在没有人类分镜确认时自行执行 `shots approve`。角色和镜头支持 list/add/update，修改镜头会撤销其审批。可用 `--url http://127.0.0.1:8765`（放在子命令前）选择后端端口。
+上述3/7仅为命令格式示例，不能自动作为实际项目授权。`tasks submit` 仍受审批、对应预算、防重限制；终态需要语义明确重做时可加 `--redo`，在途/unknown不允许重提。Codex不得在没有人类分镜确认时自行执行 `shots approve`。角色和镜头支持 list/add/update，修改镜头会撤销其审批。可用 `--url http://127.0.0.1:8765`（放在子命令前）选择后端端口。
 
 密钥用网页入口，或在本人终端运行 `python3 cli.py secret --provider wan3` 隐藏输入；没有明文 `--key` 参数，不接受管道。素材文件放项目外部/忽略素材目录，SQLite只存结构化记录和引用。SQLite使用WAL与30秒锁等待；写入带项目ID和版本检查，防止网页与CLI覆盖过期状态。网络调用前的数据库事务已提交，不持有长SQL写事务；本机单服务当前会串行化外部任务提交。

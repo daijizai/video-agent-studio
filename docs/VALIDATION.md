@@ -1,6 +1,6 @@
 # Validation / 2026-10-28
 
-- 32 automated tests passed: CLI workflows, project isolation, approval/budget gates, duplicate/timeout protection, optimistic revisions, official video/image payloads, static-frame prompt warnings, fixed project/database-bound generation scopes, credential isolation/redaction and task snapshots, named-shot finite extensions, and historical-image queries preserving the current image/approval.
+- 35 automated tests passed: CLI workflows, project isolation, approval/budget gates, duplicate/timeout protection, optimistic revisions, official video/image payloads, static-frame prompt warnings, fixed project/database-bound generation scopes, credential isolation/redaction and task snapshots, named-shot finite extensions, and historical-image queries preserving the current image/approval.
 - Browser polling integration passed with temporary SQLite/private storage and mock provider: immediate submitting/queued state; query failure and backoff; running/completed with a valid test image; no further provider queries at terminal/failed/no-ID unknown; independent collapsed details; unsaved edits preserved through polling and saved correctly; switching projects isolated; responsive375/768/1440.
 - Browser workspace integration covers project create/edit/switch/reload, write-only fake-key UI, zero-network Wan3 preview and disabled video submission.
 - Python/JavaScript syntax checks and Git secret scan passed. Real credentials remain outside repository; database, authorization file, private creative package, generated media and screenshots excluded.
@@ -13,3 +13,5 @@ Limits: project-level workspace without season management; image-only reference 
 Video preview iteration: HTTP byte-range/open-ended/suffix/HEAD and invalid range/traversal/symlink tests passed. Synthetic H.264/AAC fixture verified native playback/pause/seek/volume, audio metadata, single/final selection, responsive layout and honest empty state; no generation calls and no real-project media inserted.
 
 Image-preview iteration: local fixture browser test passed click-to-open, fit/original size, buttons/wheel and simulated two-touch zoom, current/history switching, Esc/button/backdrop close, keyboard focus trap/restore, retained expanded details and unsaved input, mobile viewport bounds, project isolation, and reclassifying an open old image as historical when a newer image arrives. No model submissions or external image transfer.
+
+Separate-budget iteration: unit/HTTP/CLI and temporary browser tests passed independent caps, no borrowing, unknown/unsettled/inflight commitments, explicit source versions, persistence/project isolation, unchanged quality approval and budgeted explicit video redo. No model calls in tests.

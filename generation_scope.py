@@ -11,11 +11,17 @@ def read():
  return json.loads(p.read_text())
 def active(project_id,database):
  scope=read().get(str(project_id))
- return bool(scope and scope.get('database')==str(Path(database).resolve()) and scope.get('expires_at',0)>time.time())
+ return bool(scope and scope.get('database')==str(Path(database).resolve()) and (bool(scope.get('budget_grants')) or scope.get('expires_at',0)>time.time()))
 def check(state,database,kind,estimate,model,shot_id=None):
  if not active(state['project_id'],database):raise ValueError('当前项目没有有效的有限生成授权')
  scope=read()[str(state['project_id'])]
  if model not in scope['models']:raise ValueError('该模型不在本次Demo授权范围')
+ if scope.get('budget_mode')=='separate_v1':
+  grant=scope.get('budget_grants',{}).get(kind)
+  if not grant:raise ValueError('该类别预算尚未获得明确授权')
+  ledger=category_ledger(state,kind,grant['limit'])
+  if Decimal(str(ledger['committed_cny']))+Decimal(str(estimate))>Decimal(str(grant['limit'])):raise ValueError(('图片' if kind=='image' else '视频')+'独立预算不足；不能挪用另一类别额度')
+  return grant['id']
  images=[t for t in state.get('image_tasks',[]) if t.get('status')!='rejected'];videos=[t for t in state.get('tasks',[]) if t.get('status')!='rejected']
  rows=images if kind=='image' else videos
  if len(rows)>=scope['image_limit' if kind=='image' else 'video_limit']:raise ValueError('本次Demo已达到授权任务次数；不自动重试或增加次数')
@@ -69,3 +75,42 @@ def extend_images(project_id,database,shot_ids,max_extra_cny,note):
  finally:
   if os.path.exists(tmp):os.unlink(tmp)
  return {'project_id':project_id,'extension_id':extension['id'],'named_shots':len(shot_ids),'additional_images':len(shot_ids),'additional_cny_cap':max_extra_cny,'total_cny_cap':scope['max_cny'],'video_limit':scope['video_limit']}
+
+def category_ledger(state,kind,limit=None):
+ rows=state.get('image_tasks',[]) if kind=='image' else state.get('tasks',[])
+ known=Decimal('0');committed=Decimal('0');inflight=Decimal('0');unsettled=Decimal('0');unknown=0
+ for task in rows:
+  if task.get('status')=='rejected':continue
+  estimate=Decimal(str(task.get('estimate',0)));actual=task.get('actual_cost_cny');live=task.get('status') in ('submitting','queued','running','unknown')
+  if actual is None:
+   unknown+=1;committed+=estimate
+   if live:inflight+=estimate
+   else:unsettled+=estimate
+  else:
+   if live:unknown+=1
+   value=Decimal(str(actual));known+=value;committed+=max(value,estimate) if live else value
+   if live:inflight+=max(value,estimate)-value
+ return {'limit_cny':limit,'actual_known_cny':float(known),'actual_total_cny':float(known) if unknown==0 else None,'actual_unknown_tasks':unknown,'committed_cny':float(committed),'inflight_reserved_cny':float(inflight),'unsettled_reserved_cny':float(unsettled),'remaining_cny':float(Decimal(str(limit))-committed) if limit is not None else None,'billing_complete':unknown==0}
+def budget_summary(state,database):
+ scope=read().get(str(state['project_id']),{}) if active(state['project_id'],database) else {}
+ grants=scope.get('budget_grants',{}) if scope.get('budget_mode')=='separate_v1' else {}
+ return {kind:{**category_ledger(state,kind,grants.get(kind,{}).get('limit')),'authorized':kind in grants,'authorization':grants.get(kind)} for kind in ('image','video')}
+def authorize_budgets(project_id,database,image_limit,video_limit,source,content_revision):
+ from math import isfinite
+ for amount in (image_limit,video_limit):
+  if type(amount) not in (int,float) or not isfinite(amount) or not 0<=amount<=100000:raise ValueError('分类预算须为0–100000的明确金额')
+ data=read();key=str(project_id);scope=data.get(key)
+ if scope and scope.get('database')!=str(Path(database).resolve()):raise ValueError('项目与数据库绑定不匹配')
+ if not scope:scope={'id':str(uuid.uuid4()),'database':str(Path(database).resolve()),'models':['qwen-image-3.0','wan3.0-video'],'image_limit':0,'video_limit':0};data[key]=scope
+ version=len(scope.get('budget_authorization_history',[]))+1
+ record={'version':version,'source':secret_store.redact(source),'content_revision':content_revision,'authorized_at':time.time(),'image_limit':image_limit,'video_limit':video_limit,'quality_approval':False}
+ scope.setdefault('budget_authorization_history',[]).append(record);scope['budget_mode']='separate_v1'
+ scope['budget_grants']={kind:{'id':str(uuid.uuid4()),'limit':amount,'version':version,'source':secret_store.redact(source),'content_revision':content_revision,'authorized_at':record['authorized_at'],'purpose':'图片制作与必要修复' if kind=='image' else '视频制作；仍须画面质量与阶段批准'} for kind,amount in (('image',image_limit),('video',video_limit))}
+ p=path();p.parent.mkdir(parents=True,exist_ok=True,mode=0o700);p.parent.chmod(0o700);fd,tmp=tempfile.mkstemp(dir=p.parent,prefix='.generation-')
+ try:
+  os.fchmod(fd,0o600)
+  with os.fdopen(fd,'w') as f:json.dump(data,f)
+  os.replace(tmp,p);p.chmod(0o600)
+ finally:
+  if os.path.exists(tmp):os.unlink(tmp)
+ return record

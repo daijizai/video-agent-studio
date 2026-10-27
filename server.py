@@ -123,8 +123,10 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path=='/api/state':return self.reply(read())
         if self.path=='/api/health':
             s=read();active=generation_scope.active(s['project_id'],DATA/'studio.db');scope=generation_scope.read().get(str(s['project_id']),{}) if active else {}
+            budgets=generation_scope.budget_summary(s,DATA/'studio.db');separate=scope.get('budget_mode')=='separate_v1'
             image_count=sum(t['status']!='rejected' for t in s['image_tasks']);video_count=sum(t['status']!='rejected' for t in s['tasks'])
-            return self.reply({'ffmpeg':bool(shutil.which('ffmpeg')),'ffprobe':bool(shutil.which('ffprobe')),'paid_generation':active,'wan3_credential_present':bool(secret_store.get_key('WAN3_API_KEY')),'image_generation':active and image_count<scope.get('image_limit',0),'video_generation':active and video_count<scope.get('video_limit',0),'image_limit':scope.get('image_limit',0),'video_limit':scope.get('video_limit',0)})
+            return self.reply({'ffmpeg':bool(shutil.which('ffmpeg')),'ffprobe':bool(shutil.which('ffprobe')),'paid_generation':active,'wan3_credential_present':bool(secret_store.get_key('WAN3_API_KEY')),'image_generation':active and (budgets['image']['authorized'] and budgets['image']['remaining_cny']>0 if separate else image_count<scope.get('image_limit',0)),'video_generation':active and (budgets['video']['authorized'] and budgets['video']['remaining_cny']>0 if separate else video_count<scope.get('video_limit',0)),'budgets':budgets,'budget_mode':scope.get('budget_mode','legacy'),'image_limit':scope.get('image_limit',0),'video_limit':scope.get('video_limit',0)})
+        if self.path=='/api/budgets':return self.reply(generation_scope.budget_summary(read(),DATA/'studio.db'))
         if self.path=='/api/providers':return self.reply(providers.config_status())
         if self.path=='/api/export':return self.reply(read())
         if self.path=='/api/revisions':
@@ -147,13 +149,17 @@ class Handler(SimpleHTTPRequestHandler):
                 if 'project_id' in p and int(p['project_id'])!=s['project_id']:raise ValueError('当前项目已切换，请刷新页面后再保存')
                 if 'revision' in p and int(p['revision'])!=s['revision']:raise ValueError('项目已被其他窗口或CLI修改，请刷新后重试')
                 if action=='/api/save':
-                    for key in ['title','episode','script','continuity','characters','shots','budget','target_duration','production_demo','sequence_prompt','authorization_note','source_manifest','project_brief','quality_lessons','final_video']:
+                    for key in ['title','episode','script','continuity','characters','shots','budget','target_duration','production_demo','sequence_prompt','authorization_note','source_manifest','project_brief','quality_lessons','final_video','budget_authorizations']:
                         if key in p:s[key]=p[key]
                     if not 1<=float(s.get('target_duration',120))<=300:raise ValueError('项目目标时长须为1–300秒')
                     if not 0<=float(s['budget'])<=100000:raise ValueError('预算必须为 0–100000')
                     if any(not 0<=float(x['estimate'])<=100000 for x in s['shots']):raise ValueError('估价必须为 0–100000')
                     if any(not 1<=float(x['duration'])<=300 for x in s['shots']):raise ValueError('镜头时长须为 1–300 秒')
                     if sum(float(x['duration']) for x in s['shots'])>300:raise ValueError('单集总时长不可超过 5 分钟')
+                elif action=='/api/budgets/authorize':
+                    source=str(p.get('source','local user confirmation'))[:500]
+                    record=generation_scope.authorize_budgets(s['project_id'],DATA/'studio.db',p.get('image_limit'),p.get('video_limit'),source,s['revision'])
+                    s['budget_authorizations']=generation_scope.read()[str(s['project_id'])]['budget_authorization_history']
                 elif action=='/api/settings':
                     s['settings']={**s['settings'], **{k:p[k] for k in ('comfy_url','workflow','provider','resolution','audio','ratio') if k in p}}
                 elif action=='/api/credentials':
@@ -172,7 +178,6 @@ class Handler(SimpleHTTPRequestHandler):
                     if any(t['status'] in ('submitting','unknown','queued','running') for t in previous):raise ValueError('已有图像任务，查询原任务，禁止重复提交')
                     if previous and not p.get('redo'):raise ValueError('重生成须明确指定redo；历史图像保留')
                     provider=image_provider.ImageProvider();prepared=provider.prepare(shot);provider.headers()
-                    if sum(t['estimate'] for t in s['tasks']+s['image_tasks'])+prepared['estimated_cny']>float(s['budget']):raise ValueError('图像生成将超过项目预算')
                     task={'id':str(uuid.uuid4()),'submitted_at':datetime.now(timezone.utc).isoformat(),'submitted_epoch':time.time(),'shot_id':shot['id'],'name':shot['name'],'provider_task_id':None,'status':'submitting','estimate':prepared['estimated_cny'],'request':prepared['payload']}
                     task['content_revision']=s['revision'];task['content_snapshot']=content_snapshot(s,shot)
                     task['authorization_id']=generation_scope.check(s,DATA/'studio.db','image',task['estimate'],prepared['payload']['model'],shot_id=shot['id'])
@@ -220,11 +225,12 @@ class Handler(SimpleHTTPRequestHandler):
                     if not generation_scope.active(s['project_id'],DATA/'studio.db'):raise ValueError('付费生成未授权，当前仅允许零请求预览')
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
                     if not shot['approved']:raise ValueError('请先确认该镜头分镜')
-                    if any(t['shot_id']==shot['id'] for t in s['tasks']):raise ValueError('该镜头已有任务记录，禁止自动重试或重复提交')
+                    previous=[t for t in s['tasks'] if t['shot_id']==shot['id']]
+                    if any(t['status'] in ('submitting','queued','running','unknown') for t in previous):raise ValueError('该镜头有在途或未知任务，禁止重复提交')
+                    if previous and not p.get('redo'):raise ValueError('已有终态任务；语义上需要重做时明确指定redo，仍检查本类别预算')
                     provider=providers.Provider(s['settings'].get('provider','wan3'))
                     prepared=provider.prepare(shot,s['settings'])
                     estimate=max(float(shot['estimate']),prepared['estimated_cny'])
-                    if sum(t['estimate'] for t in s['tasks']+s.get('image_tasks',[]))+estimate>float(s['budget']):raise ValueError('供应商估算将超过本集预算')
                     provider.headers();provider.base_url() # Validate credentials/config before durable submission intent.
                     task={'id':str(uuid.uuid4()),'shot_id':shot['id'],'name':shot['name'],'provider':provider.id,'provider_task_id':None,'status':'submitting','estimate':estimate,'request':prepared['payload']}
                     task['content_revision']=s['revision'];task['content_snapshot']=content_snapshot(s,shot)
