@@ -11,3 +11,5 @@
 Limits: project-level workspace without season management; image-only reference input for video adapter; no full role-view asset library yet; no automatic cancellation/unknown-task unlock/billing reconciliation. Generated image quality still requires human review. No open-source license selected. Preview screenshots remain local per automatic approval review.
 
 Video preview iteration: HTTP byte-range/open-ended/suffix/HEAD and invalid range/traversal/symlink tests passed. Synthetic H.264/AAC fixture verified native playback/pause/seek/volume, audio metadata, single/final selection, responsive layout and honest empty state; no generation calls and no real-project media inserted.
+
+Image-preview iteration: local fixture browser test passed click-to-open, fit/original size, buttons/wheel and simulated two-touch zoom, current/history switching, Esc/button/backdrop close, keyboard focus trap/restore, retained expanded details and unsaved input, mobile viewport bounds, project isolation, and reclassifying an open old image as historical when a newer image arrives. No model submissions or external image transfer.
