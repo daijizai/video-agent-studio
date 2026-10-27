@@ -93,6 +93,13 @@ class StudioTests(unittest.TestCase):
         shots=[{'id':'longer','name':'series segment','duration':31,'estimate':0,'prompt':'draft','approved':False}]
         self.assertEqual(self.post('save',{'shots':shots})[0],200)
         self.assertEqual(server.read()['shots'][0]['duration'],31)
+    def test_historical_image_poll_does_not_replace_current_or_clear_approval(self):
+        s=server.read();shot=s['shots'][0];shot.update(storyboard_task_id='new',storyboard_local='/media/1/new.png',storyboard_image='https://example.aliyuncs.com/new.png',approved=True,image_quality='approved')
+        s['image_tasks']=[{'id':'old','shot_id':shot['id'],'provider_task_id':'old-provider','status':'completed','estimate':.2},{'id':'new','shot_id':shot['id'],'provider_task_id':'new-provider','status':'completed','estimate':.2}];server.save(s)
+        result={'status':'completed','image_urls':['https://example.aliyuncs.com/old.png'],'usage':{},'actual_cost_cny':None}
+        with patch.object(server.image_provider.ImageProvider,'status',return_value=result),patch.object(server,'cache_image',return_value='/media/1/old.png'):
+            code,response=self.post('image/poll',{'task_id':'old'})
+        self.assertEqual(code,200);self.assertEqual(response['shots'][0]['storyboard_local'],'/media/1/new.png');self.assertTrue(response['shots'][0]['approved']);self.assertEqual(response['shots'][0]['image_quality'],'approved')
     def test_remote_host_restriction(self):
         for url in ['http://localhost.evil.test','http://127.0.0.1.evil.test','https://localhost','http://user@localhost','http://localhost/path']:
             with self.assertRaises(ValueError):server.remote(url,'/system_stats')

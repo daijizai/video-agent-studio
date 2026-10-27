@@ -1,6 +1,6 @@
 # Validation / 2026-10-28
 
-- 28 automated tests passed: CLI workflows, project isolation, approval/budget gates, duplicate/timeout protection, optimistic revisions, official video/image payloads, static-frame prompt warnings, fixed project/database-bound generation scopes, credential isolation/redaction and task snapshots.
+- 30 automated tests passed: CLI workflows, project isolation, approval/budget gates, duplicate/timeout protection, optimistic revisions, official video/image payloads, static-frame prompt warnings, fixed project/database-bound generation scopes, credential isolation/redaction and task snapshots, named-shot finite extensions, and historical-image queries preserving the current image/approval.
 - Browser polling integration passed with temporary SQLite/private storage and mock provider: immediate submitting/queued state; query failure and backoff; running/completed with a valid test image; no further provider queries at terminal/failed/no-ID unknown; independent collapsed details; unsaved edits preserved through polling and saved correctly; switching projects isolated; responsive375/768/1440.
 - Browser workspace integration covers project create/edit/switch/reload, write-only fake-key UI, zero-network Wan3 preview and disabled video submission.
 - Python/JavaScript syntax checks and Git secret scan passed. Real credentials remain outside repository; database, authorization file, private creative package, generated media and screenshots excluded.

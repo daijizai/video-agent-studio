@@ -146,7 +146,12 @@ class Handler(SimpleHTTPRequestHandler):
                     if sum(t['estimate'] for t in s['tasks']+s['image_tasks'])+prepared['estimated_cny']>float(s['budget']):raise ValueError('图像生成将超过项目预算')
                     task={'id':str(uuid.uuid4()),'submitted_at':datetime.now(timezone.utc).isoformat(),'submitted_epoch':time.time(),'shot_id':shot['id'],'name':shot['name'],'provider_task_id':None,'status':'submitting','estimate':prepared['estimated_cny'],'request':prepared['payload']}
                     task['content_revision']=s['revision'];task['content_snapshot']=content_snapshot(s,shot)
-                    task['authorization_id']=generation_scope.check(s,DATA/'studio.db','image',task['estimate'],prepared['payload']['model'])
+                    task['authorization_id']=generation_scope.check(s,DATA/'studio.db','image',task['estimate'],prepared['payload']['model'],shot_id=shot['id'])
+                    task['authorization_scope_snapshot']=copy.deepcopy(generation_scope.read()[str(s['project_id'])])
+                    if shot.get('storyboard_local') or shot.get('storyboard_image'):
+                        old=previous[-1] if previous else {}
+                        shot.setdefault('image_review_history',[]).append({'image_task_id':shot.get('storyboard_task_id',old.get('id')),'quality':shot.get('image_quality'),'user_feedback':shot.get('user_feedback'),'review':shot.get('review')})
+                    shot.pop('user_feedback',None);shot['review']='本次新图尚未审阅；历史反馈绑定旧图保留。';shot['image_quality']='generating';shot['current_image_task_id']=task['id']
                     s['image_tasks'].append(task);shot['approved']=False;save(s)
                     try:task['provider_task_id']=provider.submit(prepared,authorized=True);task['status']='queued'
                     except Exception as error:task['status']='unknown';task['error']=str(error);task['error_details']=getattr(error,'details',{});save(s);raise ValueError('图像提交结果已记录：'+str(error))
@@ -166,11 +171,19 @@ class Handler(SimpleHTTPRequestHandler):
                         result=image_provider.ImageProvider().status(task['provider_task_id']);task.update(result);task.pop('poll_error',None)
                     except Exception as error:
                         task['poll_error']=str(error);save(s);return self.reply(read())
-                    shot=next(x for x in s['shots'] if x['id']==task['shot_id']);shot['image_status']=result['status']
+                    shot=next(x for x in s['shots'] if x['id']==task['shot_id'])
+                    latest=next((t for t in reversed(s['image_tasks']) if t['shot_id']==shot['id'] and t['status']!='rejected'),None)
+                    is_current=latest is not None and latest['id']==task['id']
+                    if is_current:shot['image_status']=result['status']
                     if result['status']=='completed' and result['image_urls']:
-                        shot['storyboard_image']=result['image_urls'][0];shot['approved']=False;shot.setdefault('image_quality','unreviewed')
-                        try:shot['storyboard_local']=cache_image(s['project_id'],task['id'],result['image_urls'][0]);task['local_artifact']=shot['storyboard_local'];task.pop('download_error',None)
+                        local=None
+                        try:local=cache_image(s['project_id'],task['id'],result['image_urls'][0]);task['local_artifact']=local;task.pop('download_error',None)
                         except Exception:task['download_error']='图片已生成，但本地下载未完成；可再次查询原任务，不会重新生成'
+                        if is_current:
+                            if shot.get('storyboard_task_id')!=task['id']:
+                                shot['approved']=False;shot['image_quality']='unreviewed'
+                            shot['storyboard_task_id']=task['id'];shot['storyboard_image']=result['image_urls'][0]
+                            if local:shot['storyboard_local']=local
                 elif action=='/api/provider/preview':
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
                     return self.reply(providers.Provider(s['settings'].get('provider','wan3')).prepare(shot,s['settings']))

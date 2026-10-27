@@ -37,7 +37,7 @@ PORT=8766 python3 server.py
 
 按指定模型页使用北京接口 `https://cn-beijing.maas.qianwenaiapi.com/api/v1`，固定官方域名，不允许任意第三方 endpoint。平台详细文档另展示无地域前缀别名；当前不自动切换域名，也不把旧百炼 key 视作已验证兼容。跨账号、地域、套餐权限仍需用户账户核对。
 
-**没有全局付费开关**。生成授权保存在仓库外，绑定数据库、项目ID、模型、预算、任务次数和24小时有效期；`STUDIO_ENABLE_PAID_GENERATION` 已废弃且不能放开生成。用户对具体范围批准后，由本机受信操作调用 `generation_scope.grant(project_id, database_path, max_cny, image_limit, video_limit)` 建立有限授权；已有授权不能被此方法覆盖扩大。视频次数设为0时后端拒绝视频提交。本轮仅在授权范围内验证图片，未充值或购买套餐。Wan3预占使用原价，未依赖限时7折。参考输入当前仅支持最多10张 HTTPS 图片；不支持输入视频/音频、首尾帧或文件，以免遗漏输入秒数计费；后续可以在同一官方协议上扩展。
+**没有全局付费开关**。生成授权保存在仓库外，绑定数据库、项目ID、模型、预算、任务次数和24小时有效期；`STUDIO_ENABLE_PAID_GENERATION` 已废弃且不能放开生成。用户对具体范围批准后，由本机受信操作调用 `generation_scope.grant(project_id, database_path, max_cny, image_limit, video_limit)` 建立有限授权；已有授权不能被此方法覆盖扩大。后续明确批准的修复用 `extend_images` 记录指定镜头、任务基线、每镜一次与增量费用上限，原总预算不变；其他镜头不能借此重生成。视频次数设为0时后端拒绝视频提交。本轮仅在授权范围内验证图片，未充值或购买套餐。Wan3预占使用原价，未依赖限时7折。参考输入当前仅支持最多10张 HTTPS 图片；不支持输入视频/音频、首尾帧或文件，以免遗漏输入秒数计费；后续可以在同一官方协议上扩展。
 
 ## FFmpeg 成片
 
