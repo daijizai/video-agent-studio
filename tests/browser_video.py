@@ -15,11 +15,11 @@ with tempfile.TemporaryDirectory() as tmp:
  try:
   with sync_playwright() as p:
    b=p.chromium.launch();page=b.new_page(viewport={'width':1440,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)));submits=[];page.on('request',lambda r:submits.append(r.url) if '/submit' in r.url else None)
-   page.goto('http://127.0.0.1:'+str(http.server_port)+'/#tasks');page.locator('video').wait_for();page.wait_for_function('document.querySelector("video").readyState >= 1');assert page.locator('video').evaluate('(v)=>v.controls');assert page.locator('#video-test-badge').is_visible()
+   page.goto('http://127.0.0.1:'+str(http.server_port)+'/#tasks');page.locator('video').wait_for();assert page.locator('#video-choice').input_value()=='final';page.wait_for_function('document.querySelector("video").readyState >= 1');assert page.locator('video').evaluate('(v)=>v.controls');assert page.locator('#video-test-badge').is_visible()
    page.locator('video').evaluate('(v)=>{v.volume=.3;v.currentTime=1.5;return v.play()}');page.wait_for_function('document.querySelector("video").currentTime >= 1.5');page.locator('video').evaluate('(v)=>v.pause()');assert page.locator('video').evaluate('(v)=>v.paused');assert abs(page.locator('video').evaluate('(v)=>v.volume')-.3)<.01
    assert page.locator('#video-media-info').inner_text();assert 'FFprobe音轨：存在' in page.locator('#video-cost').inner_text();assert not page.locator('#video-submit').is_enabled()
    page.locator('#video-choice').select_option('final');page.locator('video').wait_for();assert page.locator('#video-shot-title').inner_text()=='整片结果'
-   page.locator('#video-choice').select_option(s['shots'][1]['id']);page.get_by_role('heading',name='还没有可播放的视频',exact=True).wait_for();assert page.locator('video').count()==0
+   page.locator('#video-choice').select_option(s['shots'][1]['id']);page.get_by_role('heading',name='本镜尚无独立视频',exact=True).wait_for();assert page.locator('video').count()==0;page.get_by_role('button',name='切换到整片结果').click();page.locator('video').wait_for();assert page.locator('#video-choice').input_value()=='final'
    for w in [375,768,1440]:page.set_viewport_size({'width':w,'height':900});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
    assert not submits,submits;assert not errors,errors;b.close();print('PASS: synthetic video playback/pause/seek/volume, audio metadata, final selection, honest empty state, responsive UI; zero generation submissions')
  finally:http.shutdown();http.server_close()
