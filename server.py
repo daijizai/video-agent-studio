@@ -95,7 +95,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path=='/api/health':
             s=read();active=generation_scope.active(s['project_id'],DATA/'studio.db');scope=generation_scope.read().get(str(s['project_id']),{}) if active else {}
             image_count=sum(t['status']!='rejected' for t in s['image_tasks']);video_count=sum(t['status']!='rejected' for t in s['tasks'])
-            return self.reply({'ffmpeg':bool(shutil.which('ffmpeg')),'ffprobe':bool(shutil.which('ffprobe')),'paid_generation':active,'image_generation':active and image_count<scope.get('image_limit',0),'video_generation':active and video_count<scope.get('video_limit',0),'image_limit':scope.get('image_limit',0),'video_limit':scope.get('video_limit',0)})
+            return self.reply({'ffmpeg':bool(shutil.which('ffmpeg')),'ffprobe':bool(shutil.which('ffprobe')),'paid_generation':active,'wan3_credential_present':bool(secret_store.get_key('WAN3_API_KEY')),'image_generation':active and image_count<scope.get('image_limit',0),'video_generation':active and video_count<scope.get('video_limit',0),'image_limit':scope.get('image_limit',0),'video_limit':scope.get('video_limit',0)})
         if self.path=='/api/providers':return self.reply(providers.config_status())
         if self.path=='/api/export':return self.reply(read())
         if self.path=='/api/revisions':
@@ -195,6 +195,7 @@ class Handler(SimpleHTTPRequestHandler):
                 elif action=='/api/provider/poll':
                     task=next(t for t in s['tasks'] if t['id']==p['task_id'])
                     if not task.get('provider_task_id'):raise ValueError('缺少任务编号，禁止自动重试')
+                    task['last_checked_at']=datetime.now(timezone.utc).isoformat()
                     result=providers.Provider(task['provider']).status(task['provider_task_id'])
                     task.update(result)
                     next(x for x in s['shots'] if x['id']==task['shot_id'])['status']='待检查' if result['status']=='completed' else result['status']
@@ -226,6 +227,7 @@ class Handler(SimpleHTTPRequestHandler):
                 elif action=='/api/poll':
                     task=next(t for t in s['tasks'] if t['id']==p['task_id'])
                     if not task['provider_task_id']:raise ValueError('缺少供应商编号，请在 ComfyUI 手动核对；禁止自动重试')
+                    task['last_checked_at']=datetime.now(timezone.utc).isoformat()
                     r=remote(s['settings']['comfy_url'],'/history/'+task['provider_task_id']);entry=r.get(task['provider_task_id'])
                     if entry:
                         task['status']='failed' if entry.get('status',{}).get('status_str')=='error' else ('completed' if entry.get('status',{}).get('completed') else 'running')
