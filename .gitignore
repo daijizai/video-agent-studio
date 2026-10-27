@@ -9,3 +9,9 @@ assets/*
 *.mov
 *.wav
 *.mp3
+.env.*
+!.env.example
+*credentials*.json
+*.pem
+
+docs/workbench.*

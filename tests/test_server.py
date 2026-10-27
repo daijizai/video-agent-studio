@@ -12,7 +12,9 @@ class StudioTests(unittest.TestCase):
         threading.Thread(target=cls.http.serve_forever,daemon=True).start();cls.initial=server.read()
     @classmethod
     def tearDownClass(cls):cls.http.shutdown();cls.http.server_close();cls.tmp.cleanup()
-    def setUp(self):server.save(copy.deepcopy(self.initial))
+    def setUp(self):
+        with server.db() as c:c.execute('UPDATE workspace SET current_project=1 WHERE id=1')
+        server.save(copy.deepcopy(self.initial))
     def post(self,path,p):
         req=urllib.request.Request(self.url+'/api/'+path,data=json.dumps(p).encode(),headers={'Content-Type':'application/json'})
         try:
@@ -47,6 +49,43 @@ class StudioTests(unittest.TestCase):
         self.assertEqual(self.post('save',{'shots':s['shots']})[0],400)
         self.assertEqual(self.post('save',{'script':'edited'})[0],200);self.assertEqual(server.read()['script'],'edited')
         with server.db() as c:self.assertGreater(c.execute('SELECT COUNT(*) FROM revisions').fetchone()[0],0)
+    def test_project_isolation_and_selection(self):
+        old=server.read();old['script']='original-project';server.save(old)
+        code,new=self.post('projects/new',{'title':'Independent film'})
+        self.assertEqual(code,200);self.assertFalse(new['demo']);self.assertEqual(new['shots'],[])
+        pid=new['project_id'];self.post('save',{'script':'new-project','budget':12,'project_id':pid})
+        self.assertEqual(server.read()['script'],'new-project');self.assertEqual(server.current_project(),pid)
+        # Simulate stale browser tab writing into the newly selected project.
+        self.assertEqual(self.post('save',{'script':'bad','project_id':1})[0],400)
+        self.post('projects/switch',{'project_id':1})
+        self.assertEqual(server.read()['script'],'original-project');self.assertEqual(len(server.read()['shots']),4)
+        self.post('projects/switch',{'project_id':pid});server.init()
+        self.assertEqual(server.current_project(),pid);self.assertEqual(server.read()['budget'],12)
+    def test_provider_http_preview_and_paid_gate(self):
+        s=server.read();s['shots'][0]['reference_images']=['https://example.com/role.png'];s['shots'][0]['duration']=5;server.save(s)
+        with patch('providers.transport',side_effect=AssertionError('network forbidden')):
+            code,result=self.post('provider/preview',{'shot_id':s['shots'][0]['id']})
+            self.assertEqual(code,200);self.assertFalse(result['network_called']);self.assertEqual(result['estimated_cny'],3.0)
+            self.assertEqual(self.post('provider/submit',{'shot_id':s['shots'][0]['id']})[0],400)
+    def test_credentials_not_in_database_export_or_logs(self):
+        import contextlib,io,os
+        token='fake-private-key-for-http-test'
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ,{'STUDIO_SECRET_FILE':str(Path(tmp)/'credentials.json')}):
+            logs=io.StringIO()
+            with contextlib.redirect_stderr(logs):
+                code,response=self.post('credentials',{'provider':'wan3','value':token})
+                self.assertEqual(code,200);self.assertNotIn(token,json.dumps(response))
+                with urllib.request.urlopen(self.url+'/api/export') as r:self.assertNotIn(token,r.read().decode())
+            self.assertNotIn(token,logs.getvalue())
+            with server.db() as c:
+                for row in c.execute('SELECT body FROM state UNION ALL SELECT body FROM revisions'):
+                    self.assertNotIn(token,row[0])
+    def test_optimistic_revision_guard(self):
+        stale=server.read()
+        code,fresh=self.post('save',{'script':'first edit','project_id':stale['project_id'],'revision':stale['revision']})
+        self.assertEqual(code,200);self.assertGreater(fresh['revision'],stale['revision'])
+        code,_=self.post('save',{'script':'stale overwrite','project_id':stale['project_id'],'revision':stale['revision']})
+        self.assertEqual(code,400);self.assertEqual(server.read()['script'],'first edit')
     def test_remote_host_restriction(self):
         for url in ['http://localhost.evil.test','http://127.0.0.1.evil.test','https://localhost','http://user@localhost','http://localhost/path']:
             with self.assertRaises(ValueError):server.remote(url,'/system_stats')

@@ -1,56 +1,93 @@
 # Frame Studio / 视频制作 Agent 工作台
 
-面向长期角色 IP、系列 AI 短剧的本地制作工作台。Codex 负责制作推理与策划，HTML 工作台负责编辑和进度，Python/SQLite 负责状态与预算，ComfyUI 执行工作流，FFmpeg 负责后期拼接。
+以 Codex 为制作中枢的本地 AI 短剧工作台。HTML/JS 网页负责可视化制作；Python + SQLite 管理项目、角色版本、分镜、任务与预算；ComfyUI 执行本机工作流；**千问AI平台 Wan3.0-Video 为主用视频 API**；FFmpeg 做成片拼接与字幕。
 
-## 本地运行
+## 运行
 
-Python 3.9+，无需 pip 依赖：
+Python 3.9+，应用无 pip 或 npm 依赖：
 
 ```sh
 python3 server.py
+# 默认端口被占用时：
+PORT=8766 python3 server.py
 ```
 
-打开 http://127.0.0.1:8765 。当前交付预览使用 http://127.0.0.1:8766 （默认端口已被其他服务占用）。可用 `PORT=8766 python3 server.py` 更换端口。服务仅监听本机，适合单人使用；没有多用户认证，请勿暴露公网。
+打开 http://127.0.0.1:8765 或 http://127.0.0.1:8766 。交付预览使用 8766。服务仅监听 loopback，适合单人本机使用；没有多用户认证，不应暴露公网。
 
-## 第一版已实现
+## 已实现
 
-- 六个可交互页面：制作总览、剧本与连续性、角色资产库、分镜工作台、执行与检查、工具与设置。
-- 剧本和设定编辑、角色版本快照、分镜添加/编辑/逐镜确认、检查记录、JSON 导出。
-- SQLite 持久化与本集预算；总时长 300 秒上限。按任务预占估价，**预占不是实际账单**。
-- 本机 ComfyUI `/system_stats` 检测、API 格式工作流 `/prompt` 提交、`/history/{prompt_id}` 查询；编号持久化、重复提交拦截、未知结果锁定。
-- 制作 Skill：`skills/production/SKILL.md`；供应商协议：`providers.py`。
-- `assemble.py` 拼接同编码/同规格审核镜头，可选 SRT 烧录。当前版本不提供网页成片导出、自动混音或语音合成。
+- 顶部**工作空间 / 项目选择 / 新建项目**；当前选择持久化，刷新恢复。各项目的剧本、角色、分镜、检查、任务、配置与预算独立保存。没有季管理。
+- 保留《雾港来信》示例；新项目为空白且不标作示例。示例四镜头共27秒，用来演示交互，不是完整一集，也没有生成媒体。
+- 六个页面：制作总览、剧本与连续性、角色资产库、分镜工作台、执行与检查、工具与设置。
+- 角色设定版本快照、分镜逐镜确认、参考图 URL、检查记录和当前项目 JSON 导出。
+- Wan3 官方请求构建、图片参考/纯文本模式、异步提交与查询、状态归一化。输入使用 `media`，不会套用旧版 `reference_urls`。另保留 Wan2.6/Seedance 对照适配；可灵仅调研。
+- 网页可零请求预览 payload 与估价。分镜审批、预算预占、提交前持久化、供应商任务编号和 unknown 锁定防止重复提交。**本地UUID不等于供应商幂等保证**。
+- ComfyUI 本机连接检测、基础内置图像节点工作流提交与查询；任意付费/自定义节点仍被拦截。
+- FFmpeg 拼接与可选 SRT 烧录脚本。本次已安装本机 FFmpeg/FFprobe，实际通过合成素材验证；二进制不随仓库分发。
 
-首次启动的《雾港来信》为**示例策划内容**，共 27 秒，仅用于演示交互，未达到完整一集长度。抽象分镜画面是 CSS 占位；没有生成视频、参考图、模型连接或费用。项目编辑存入 `data/studio.db`；修改示例不会调用模型。页面的演示标记保留，真实执行记录单独展示。
+## Wan3.0 配置与密钥隔离
 
-## ComfyUI 使用与限制
+1. 在 [千问AI平台](https://platform.qianwenai.com/home/api-keys) 自行获取对应 API Key。不要在聊天、语音、截图或 GitHub 中提供密钥。
+2. 在网页“工具与设置”选择 **千问AI Wan3.0-Video**，保存分辨率、音频配置。在密码输入框填写密钥，点击“安全保存到仓库外”。后端本地存储名是 `WAN3_API_KEY`，发送时映射为官方 `Authorization: Bearer`。
+3. 实际密钥位于仓库外 `../.video-agent-studio-private/credentials.json`：目录0700、文件0600，原子写入。网页不回显；不使用 localStorage；不存 SQLite 或项目导出；HTTP日志不记录请求正文，异常隐藏上游内容，响应对已知凭据做脱敏。
+4. 可用 `STUDIO_SECRET_FILE=/absolute/private/folder/credentials.json` 显式指定仓库外路径，指向仓库内部会被拒绝。仓库 `.env.example` 仅说明非秘密启动选项；**应用不从仓库内 .env 读取或保存密钥**。
+5. 配置存在仅显示“未验证连接”。没有真实凭据认证或生成验收，不会伪装接通。
 
-在设置页保存本机地址，例如 `http://127.0.0.1:8188`，粘贴通过 ComfyUI 导出的 **API 格式** JSON。在 CLIPTextEncode 文本中使用 `{{prompt}}` 注入镜头描述。默认不提供伪造工作流：模型、节点和输入必须匹配你的 ComfyUI 安装。
+按指定模型页使用北京接口 `https://cn-beijing.maas.qianwenaiapi.com/api/v1`，固定官方域名，不允许任意第三方 endpoint。平台详细文档另展示无地域前缀别名；当前不自动切换域名，也不把旧百炼 key 视作已验证兼容。跨账号、地域、套餐权限仍需用户账户核对。
 
-第一版只允许基础内置图像节点（名单见 server.py），用于证明连接和任务生命周期。**视频节点、第三方节点、付费节点尚未接入**；不要把本版本视为已完成视频模型集成。可灵、阿里云等供应商仅有适配协议，无凭据、无实现、无付费生成。ComfyUI 完成结果目前展示输出元数据，媒体文件需在 ComfyUI 侧检查。
+**付费生成默认关闭**。模型选择不等于花费授权。待用户确认具体单次/总预算后，才可通过环境变量 `STUDIO_ENABLE_PAID_GENERATION=true` 显式开启。当前没有购买额度或请求付费生成。Wan3预占使用原价，未依赖限时7折。参考输入当前仅支持最多10张 HTTPS 图片；不支持输入视频/音频、首尾帧或文件，以免遗漏输入秒数计费；后续可以在同一官方协议上扩展。
 
-提交前必须确认镜头并有足够预算。意图先落库，再提交网络请求；网络超时标记 unknown，不自动重试。需在 ComfyUI 手动核对未知任务。当前版本不提供取消、自动重做与未知任务解锁；要重做可添加一个新镜头，但务必先核对旧任务。没有供应商实际费用回传。
-
-## 成片脚本
-
-需要自行安装 FFmpeg。准备同分辨率、同编码、同帧率且具有一致音轨结构的镜头：
+## FFmpeg 成片
 
 ```sh
 python3 assemble.py assets/shot-01.mp4 assets/shot-02.mp4 -o episode-01.mp4
 python3 assemble.py assets/shot-01.mp4 assets/shot-02.mp4 --subtitles assets/captions.srt -o episode-01-sub.mp4
 ```
 
-不会覆盖已有输出。暂无 FFmpeg 时明确报错。声音混音、片头、时间线编辑仍待实现。
+准备同编码、同规格、同音轨结构的审核镜头。不会覆盖已有输出。暂无网页时间线、自动配音或混音；普通拼接可能保留输入音频时间戳差异，复杂剪辑应先标准化素材。
 
-## 数据与开源边界
-
-只发布源代码和通用示例。`data/`、`.env`、本机数据库、素材和成片不应入库。没有选择开源许可证，当前暂未附加 LICENSE，公开可读不代表授予任意使用许可。
-
-## 验证
+## 测试与资料
 
 ```sh
 python3 -m unittest discover -s tests -v
 node --check static/app.js
+python3 scripts/check_secrets.py
+# 可选浏览器测试需 Playwright Python + Chromium：
+python3 tests/browser_workspace.py
 ```
 
-浏览器 smoke 测试需要可选的 Playwright Python 包及 Chromium；运行 `python3 tests/browser_smoke.py`（先启动服务）。
+- [API调研与当前决策](docs/VIDEO_API_RESEARCH.md)
+- [Wan3协议核对](docs/WAN3_INTEGRATION.md)
+- [FFmpeg安装验证](docs/FFMPEG_SETUP.md)
+- [验证结果与限制](docs/VALIDATION.md)
+- 制作 Skill：`skills/production/SKILL.md`
+
+运行数据在 `data/studio.db`，原有单项目数据自动迁移为示例项目。只发布源码、通用示例与文档；不发布数据库、凭据、私人素材或成片。尚未选择许可证，当前不附加 LICENSE；公开可读不代表授予任意使用许可。
+
+## 给 Codex 使用的 CLI
+
+CLI 通过同一个本机 HTTP 后端执行，复用 SQLite、分镜审批、预算和任务防重逻辑；请先启动网页后端。标准输出为 `{"ok":true,"data":…}`，失败为标准错误 JSON + 非零退出码。
+
+```sh
+python3 cli.py projects list
+python3 cli.py projects create '新故事'
+python3 cli.py projects select 1
+python3 cli.py script get
+python3 cli.py script set --file /path/to/script.txt --continuity-file /path/to/continuity.txt
+python3 cli.py characters add --file /path/to/character.json
+python3 cli.py shots add --file /path/to/shot.json
+python3 cli.py shots list
+python3 cli.py shots approve SHOT_ID
+python3 cli.py tasks preview SHOT_ID
+python3 cli.py tasks submit SHOT_ID
+python3 cli.py tasks status TASK_ID
+python3 cli.py shots review SHOT_ID --file /path/to/review.txt
+python3 cli.py provider configure --provider wan3 --resolution 480p
+python3 cli.py provider status
+python3 cli.py budget 10
+python3 cli.py export
+```
+
+`tasks submit` 仍受付费关闭、审批、预算、防重限制。Codex不得在没有人类分镜确认时自行执行 `shots approve`。角色和镜头支持 list/add/update，修改镜头会撤销其审批。可用 `--url http://127.0.0.1:8765`（放在子命令前）选择后端端口。
+
+密钥用网页入口，或在本人终端运行 `python3 cli.py secret --provider wan3` 隐藏输入；没有明文 `--key` 参数，不接受管道。素材文件放项目外部/忽略素材目录，SQLite只存结构化记录和引用。SQLite使用WAL与30秒锁等待；写入带项目ID和版本检查，防止网页与CLI覆盖过期状态。网络调用前的数据库事务已提交，不持有长SQL写事务；本机单服务当前会串行化外部任务提交。
