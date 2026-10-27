@@ -15,3 +15,5 @@ assets/*
 *.pem
 
 docs/workbench.*
+
+*.webm

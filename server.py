@@ -3,6 +3,7 @@
 import providers
 import image_provider
 import generation_scope
+import media_files
 import re
 import copy
 from datetime import datetime,timezone
@@ -84,12 +85,40 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'static'),**kw)
     def reply(self,data,status=200):
         b=json.dumps(secret_store.redact(data),ensure_ascii=False).encode(); self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
+    def serve_media(self,head=False):
+        if not re.fullmatch(r'/media/[0-9]+/[A-Za-z0-9_-]+\.(png|mp4|webm)',self.path):return self.reply({'error':'非法媒体路径'},400)
+        base=(ROOT/'assets').resolve();path=(base/self.path.removeprefix('/media/')).resolve()
+        if not path.is_relative_to(base) or not path.is_file():return self.reply({'error':'媒体不存在'},404)
+        size=path.stat().st_size;start=0;end=size-1;status=200
+        header=self.headers.get('Range')
+        if header:
+            match=re.fullmatch(r'bytes=([0-9]*)-([0-9]*)',header)
+            valid=bool(match and (match[1] or match[2]) and size)
+            if valid:
+                if match[1]:start=int(match[1]);end=min(int(match[2]),size-1) if match[2] else size-1
+                else:
+                    suffix=int(match[2]);start=max(0,size-suffix);end=size-1;valid=suffix>0
+                valid=valid and start<size and start<=end
+            if not valid:
+                self.send_response(416);self.send_header('Content-Range','bytes */'+str(size));self.send_header('Content-Length','0');self.end_headers();return
+            status=206
+        self.send_response(status);self.send_header('Content-Type',{'.png':'image/png','.mp4':'video/mp4','.webm':'video/webm'}[path.suffix]);self.send_header('Accept-Ranges','bytes');self.send_header('Cache-Control','private, max-age=3600');self.send_header('Content-Length',str(max(0,end-start+1)))
+        if status==206:self.send_header('Content-Range','bytes '+str(start)+'-'+str(end)+'/'+str(size))
+        self.end_headers()
+        if head:return
+        try:
+            with open(path,'rb') as f:
+                f.seek(start);remaining=end-start+1
+                while remaining>0:
+                    chunk=f.read(min(65536,remaining))
+                    if not chunk:break
+                    self.wfile.write(chunk);remaining-=len(chunk)
+        except (BrokenPipeError,ConnectionResetError):return
+    def do_HEAD(self):
+        if self.path.startswith('/media/'):return self.serve_media(head=True)
+        return super().do_HEAD()
     def do_GET(self):
-        if self.path.startswith('/media/'):
-            if not re.fullmatch(r'/media/[0-9]+/[A-Za-z0-9_-]+\.png',self.path):return self.reply({'error':'非法媒体路径'},400)
-            path=ROOT/'assets'/self.path.removeprefix('/media/')
-            if not path.is_file():return self.reply({'error':'图片不存在'},404)
-            data=path.read_bytes();self.send_response(200);self.send_header('Content-Type','image/png');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
+        if self.path.startswith('/media/'):return self.serve_media()
         if self.path=='/api/projects':return self.reply(project_list())
         if self.path=='/api/state':return self.reply(read())
         if self.path=='/api/health':
@@ -118,7 +147,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if 'project_id' in p and int(p['project_id'])!=s['project_id']:raise ValueError('当前项目已切换，请刷新页面后再保存')
                 if 'revision' in p and int(p['revision'])!=s['revision']:raise ValueError('项目已被其他窗口或CLI修改，请刷新后重试')
                 if action=='/api/save':
-                    for key in ['title','episode','script','continuity','characters','shots','budget','target_duration','production_demo','sequence_prompt','authorization_note','source_manifest','project_brief','quality_lessons']:
+                    for key in ['title','episode','script','continuity','characters','shots','budget','target_duration','production_demo','sequence_prompt','authorization_note','source_manifest','project_brief','quality_lessons','final_video']:
                         if key in p:s[key]=p[key]
                     if not 1<=float(s.get('target_duration',120))<=300:raise ValueError('项目目标时长须为1–300秒')
                     if not 0<=float(s['budget'])<=100000:raise ValueError('预算必须为 0–100000')
@@ -211,6 +240,9 @@ class Handler(SimpleHTTPRequestHandler):
                     task['last_checked_at']=datetime.now(timezone.utc).isoformat()
                     result=providers.Provider(task['provider']).status(task['provider_task_id'])
                     task.update(result)
+                    if result['status']=='completed' and result.get('video_url'):
+                        try:task['local_video'],task['media_info']=media_files.cache_video(ROOT,s['project_id'],task['id'],result['video_url']);task.pop('download_error',None)
+                        except Exception:task['download_error']='视频已生成，本地下载未完成；可再次查询原任务，不会重生成'
                     next(x for x in s['shots'] if x['id']==task['shot_id'])['status']='待检查' if result['status']=='completed' else result['status']
                 elif action=='/api/connect':
                     r=remote(s['settings']['comfy_url'],'/system_stats');return self.reply({'connected':True,'system':r})
