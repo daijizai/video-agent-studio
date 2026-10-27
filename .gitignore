@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+data/
+.env
+.DS_Store
+assets/*
+!assets/.gitkeep
+*.mp4
+*.mov
+*.wav
+*.mp3
