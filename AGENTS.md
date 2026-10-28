@@ -10,3 +10,8 @@
 
 - Honor the project's generation pause across image, video and local workflow submissions. Budget/model edits do not resume execution; retain unused balances and evidence.
 - Derive stages through workflow_state.py from persisted facts. Current image approvals are content/image-bound; provisional film acceptance is distinct from objective quality guarantees.
+
+## Creative workflows
+- Read `skills/frame-screenplay/SKILL.md` for scripts/shots, `skills/frame-character-assets/SKILL.md` for character designs/views, and `skills/frame-object-assets/SKILL.md` for object designs/views. Load only relevant templates.
+- Keep reusable creative methods in these versioned Skills. Codex applies them to project material; Python/JS enforces data and execution contracts. Do not move budget, approval, credential or path enforcement out of code.
+- Ordinary UI shows stories, designs, media, versions, costs and feedback. Machine prompts and consistency records remain backstage; hiding them must not delete history or silently change requests.
