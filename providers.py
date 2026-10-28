@@ -9,6 +9,7 @@ import urllib.parse
 from decimal import Decimal, ROUND_UP
 
 CATALOG = {
+    'wan3-prime': {'label':'千问AI Wan3.0-Video-Prime · 默认','model':'wan3.0-video-prime','key_env':'WAN3_API_KEY','reference_limit':10},
     'wan3': {'label':'千问AI Wan3.0-Video · 主用','model':'wan3.0-video','key_env':'WAN3_API_KEY','reference_limit':10},
     'wan': {'label': '阿里 Wan 2.6 R2V Flash', 'model': 'wan2.6-r2v-flash', 'key_env': 'DASHSCOPE_API_KEY', 'reference_limit': 5},
     'seedance': {'label': '字节 Seedance 2.0 Mini', 'model': 'doubao-seedance-2-0-mini-260615', 'key_env': 'ARK_API_KEY', 'reference_limit': 9},
@@ -17,11 +18,15 @@ CATALOG = {
 def paid_enabled():
     return False  # No global paid unlock: the backend validates finite project scopes.
 
-def config_status():
-    return [{**v, 'id': k, 'credential_present': bool(secret_store.get_key(v['key_env'])),
-             'endpoint_configured': bool(os.getenv('WAN_WORKSPACE_ID')) if k == 'wan' else True,
-             'connection': 'unverified', 'paid_enabled': paid_enabled()}
-            for k, v in CATALOG.items()]
+def config_status(state=None):
+    tasks=(state or {}).get('tasks',[])
+    result=[]
+    for key,value in CATALOG.items():
+        observed=[t for t in tasks if (t.get('request',{}).get('model') or t.get('model'))==value['model']]
+        accepted=[t for t in observed if t.get('provider_task_id')]
+        result.append({**value,'id':key,'credential_present':bool(secret_store.get_key(value['key_env'])),'endpoint_configured':bool(os.getenv('WAN_WORKSPACE_ID')) if key=='wan' else True,'connection':'unverified','paid_enabled':False,'last_execution_status':accepted[-1]['status'] if accepted else None,'execution_evidence':'historical project task only, not a fresh auth probe'})
+    return result
+
 
 class ProviderHTTPError(RuntimeError):
     def __init__(self,status,code,message,headers):
@@ -56,7 +61,7 @@ class Provider:
         self.request = request
 
     def base_url(self):
-        if self.id == 'wan3':
+        if self.id in ('wan3','wan3-prime'):
             return 'https://cn-beijing.maas.qianwenaiapi.com/api/v1'
         if self.id == 'seedance': return 'https://ark.cn-beijing.volces.com/api/v3'
         workspace = os.getenv('WAN_WORKSPACE_ID', '')
@@ -68,17 +73,17 @@ class Provider:
         key = secret_store.get_key(self.meta['key_env'])
         if not key: raise ValueError('尚未配置 ' + self.meta['key_env'])
         headers = {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}
-        if self.id in ('wan','wan3'): headers['X-DashScope-Async'] = 'enable'
+        if self.id in ('wan','wan3','wan3-prime'): headers['X-DashScope-Async'] = 'enable'
         return headers
 
     def prepare(self, shot, config):
         duration = float(shot['duration'])
-        maximum = 30 if self.id == 'wan3' else (10 if self.id == 'wan' else 15)
+        maximum = 30 if self.id in ('wan3','wan3-prime') else (10 if self.id == 'wan' else 15)
         if not duration.is_integer() or not 2 <= duration <= maximum:
             raise ValueError('该适配器支持 2–%d 秒整数镜头' % maximum)
         duration = int(duration)
-        refs = shot.get('reference_images', [])
-        if not isinstance(refs, list) or not (0 if self.id=='wan3' else 1) <= len(refs) <= self.meta['reference_limit']:
+        refs = [shot['storyboard_image']] if self.id in ('wan3','wan3-prime') and shot.get('storyboard_image') else shot.get('reference_images', [])
+        if not isinstance(refs, list) or not (0 if self.id in ('wan3','wan3-prime') else 1) <= len(refs) <= self.meta['reference_limit']:
             raise ValueError('请提供 1–%d 张角色参考图 HTTPS URL' % self.meta['reference_limit'])
         for url in refs:
             p = urllib.parse.urlparse(url)
@@ -91,14 +96,15 @@ class Provider:
         resolution = config.get('resolution', '720p')
         audio = config.get('audio', False)
         if type(audio) is not bool: raise ValueError('audio 必须为布尔值')
-        if self.id == 'wan3':
+        if self.id in ('wan3','wan3-prime'):
             if resolution not in ('480p','720p','1080p'):raise ValueError('Wan3支持480p/720p/1080p')
             ratio=config.get('ratio','16:9')
             if ratio not in ('16:9','9:16','1:1'):raise ValueError('未支持的画幅比例')
-            payload={'model':'wan3.0-video','input':{'prompt':prompt},'parameters':{'resolution':resolution.upper(),'ratio':ratio,'duration':duration,'audio':audio,'watermark':True,'prompt_extend':False}}
+            payload={'model':self.meta['model'],'input':{'prompt':prompt},'parameters':{'resolution':resolution.upper(),'ratio':ratio,'duration':duration,'audio':audio,'watermark':True,'prompt_extend':False}}
             if refs:payload['input']['media']=[{'type':'reference_image','url':url} for url in refs]
-            estimate=Decimal({'480p':'0.30','720p':'0.60','1080p':'1.20'}[resolution])*duration
-            note='Wan3北京原价预占；页面限时7折未抵扣，音频开关同价；仅图片/文本输入'
+            rates={'480p':'0.45','720p':'0.90','1080p':'1.80'} if self.id=='wan3-prime' else {'480p':'0.30','720p':'0.60','1080p':'1.20'}
+            estimate=Decimal(rates[resolution])*duration
+            note=self.meta['model']+' 北京原价预占；'+('Prime无七折假设；' if self.id=='wan3-prime' else '标准版限时折扣不提前抵扣；')+'音频开关同价；仅图片/文本输入'
         elif self.id == 'wan':
             if resolution not in ('720p', '1080p'): raise ValueError('Wan 支持 720p / 1080p')
             size = '1280*720' if resolution == '720p' else '1920*1080'
@@ -120,21 +126,21 @@ class Provider:
                 'currency': 'CNY', 'price_checked': '2026-10-28', 'note': note, 'network_called': False}
 
     def submit(self, prepared, idempotency_key, authorized=False):
-        if not authorized: raise ValueError('付费生成未授权：STUDIO_ENABLE_PAID_GENERATION 默认为 false')
+        if not authorized: raise ValueError('生成未获得后端项目预算与语义授权')
         headers = self.headers()
         # idempotency_key is a local durable intent identifier; neither API is assumed to deduplicate it.
-        path = '/services/aigc/video-generation/video-synthesis' if self.id in ('wan','wan3') else '/contents/generations/tasks'
+        path = '/services/aigc/video-generation/video-synthesis' if self.id in ('wan','wan3','wan3-prime') else '/contents/generations/tasks'
         response = self.request('POST', self.base_url() + path, headers, prepared['payload'])
-        task_id = response.get('output', {}).get('task_id') if self.id in ('wan','wan3') else response.get('id')
+        task_id = response.get('output', {}).get('task_id') if self.id in ('wan','wan3','wan3-prime') else response.get('id')
         if not task_id: raise RuntimeError('供应商未返回任务编号；提交结果不确定，禁止自动重试')
         return str(task_id)
 
     def status(self, task_id):
         if not re.fullmatch(r'[A-Za-z0-9_-]+', task_id): raise ValueError('非法任务编号')
-        path = '/tasks/' if self.id in ('wan','wan3') else '/contents/generations/tasks/'
+        path = '/tasks/' if self.id in ('wan','wan3','wan3-prime') else '/contents/generations/tasks/'
         headers=self.headers();headers.pop('X-DashScope-Async',None)
         response = self.request('GET', self.base_url() + path + task_id, headers)
-        if self.id in ('wan','wan3'):
+        if self.id in ('wan','wan3','wan3-prime'):
             output = response.get('output', {})
             status = {'PENDING': 'queued', 'RUNNING': 'running', 'SUCCEEDED': 'completed', 'FAILED': 'failed', 'CANCELED': 'cancelled'}.get(output.get('task_status'), 'unknown')
             url = output.get('video_url')

@@ -2,6 +2,7 @@
 from decimal import Decimal
 import re, urllib.parse
 import providers, secret_store
+DEFAULT_IMAGE_MODEL='qwen-image-3.0-pro'
 STATIC_FRAME_PREFIX='单张独立画面：只描绘一个静态瞬间、一个构图。不画分格、拼贴、分屏、三联画或接触印样。不将时间顺序展开成多个画面。'
 def prompt_warnings(prompt):
     warnings=[]
@@ -9,10 +10,10 @@ def prompt_warnings(prompt):
     return warnings
 class ImageProvider:
     def __init__(self,request=providers.transport):self.request=request
-    def prepare(self,shot):
+    def prepare(self,shot,defaults=None):
         prompt=str(shot.get('image_prompt') or shot.get('prompt') or '').strip()
         if not prompt:raise ValueError('请先填写关键帧画面描述')
-        model=shot.get('image_model','qwen-image-3.0')
+        model=shot.get('image_model') or (defaults or {}).get('image_model') or DEFAULT_IMAGE_MODEL
         if model not in ('qwen-image-3.0','qwen-image-3.0-pro'):raise ValueError('未支持的分镜图模型')
         refs=shot.get('reference_images',[])
         if not isinstance(refs,list) or len(refs)>3:raise ValueError('Qwen Image 3.0最多支持3张角色/场景参考图')
@@ -20,12 +21,13 @@ class ImageProvider:
             p=urllib.parse.urlparse(url)
             if not ((p.scheme=='https' and p.hostname and not p.username and not p.password) or (p.scheme=='oss' and p.netloc=='dashscope-instant')):raise ValueError('参考图需为HTTPS或官方临时OSS图片URL')
         size=shot.get('image_size','720*1280')
-        if size not in ('720*1280','1280*720','1024*1024'):raise ValueError('请选择已支持的关键帧尺寸')
+        if size not in ('720*1280','1280*720','1024*1024','1536*2048','2048*1536','2048*2048'):raise ValueError('请选择已支持的关键帧尺寸')
         warnings=prompt_warnings(prompt)
         content=[{'image':url} for url in refs]+[{'text':STATIC_FRAME_PREFIX+'\n'+prompt}]
         payload={'model':model,'input':{'messages':[{'role':'user','content':content}]},'parameters':{'size':size,'n':1,'prompt_extend':False,'watermark':True}}
-        estimate=Decimal('0.18' if model=='qwen-image-3.0' else '0.25')+Decimal('0.02')*len(refs)
-        return {'provider':'qwen-image','payload':payload,'estimated_cny':float(estimate),'currency':'CNY','network_called':False,'warnings':warnings,'note':'北京1K档：每次1张；参考图每张另计¥0.02；免费额度尚不抵扣预占'}
+        pixels=__import__('functools').reduce(lambda a,b:a*b,map(int,size.split('*')))
+        estimate=Decimal('0.18' if model=='qwen-image-3.0' else ('0.50' if pixels>2250000 else '0.25'))+Decimal('0.02')*len(refs)
+        return {'provider':'qwen-image','payload':payload,'estimated_cny':float(estimate),'currency':'CNY','network_called':False,'warnings':warnings,'note':'北京'+('2K' if pixels>2250000 else '1K')+'档：每次1张；参考图每张另计¥0.02；免费额度尚不抵扣预占'}
     def headers(self):
         key=secret_store.get_key('WAN3_API_KEY')
         if not key:raise ValueError('请先配置同平台WAN3_API_KEY')

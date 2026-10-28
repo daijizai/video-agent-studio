@@ -51,3 +51,7 @@ class ProviderContracts(unittest.TestCase):
     def test_no_key_leak(self):
         with patch.dict(os.environ,{'DASHSCOPE_API_KEY':'test-secret'}):
             self.assertNotIn('test-secret',str(providers.config_status()))
+    def test_prime_minimum_quality_audio_and_prices(self):
+        p=providers.Provider('wan3-prime');shot={'duration':30,'prompt':'single approved sequence','reference_images':['https://example.com/approved.png']}
+        for resolution,price in [('480p',13.5),('720p',27),('1080p',54)]:
+            r=p.prepare(shot,{'resolution':resolution,'audio':True,'ratio':'9:16'});self.assertEqual(r['estimated_cny'],price);self.assertEqual(r['payload']['model'],'wan3.0-video-prime');self.assertTrue(r['payload']['parameters']['audio']);self.assertEqual(r['payload']['parameters']['duration'],30)

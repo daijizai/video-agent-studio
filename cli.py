@@ -16,7 +16,7 @@ def main():
         actions.add_parser('list');p=actions.add_parser('add');p.add_argument('--file',required=True,help='JSON object')
         p=actions.add_parser('update');p.add_argument('id');p.add_argument('--file',required=True,help='JSON object')
         if name=='shots':
-            p=actions.add_parser('approve');p.add_argument('id');p.add_argument('--revoke',action='store_true')
+            p=actions.add_parser('approve');p.add_argument('id');p.add_argument('--revoke',action='store_true');p.add_argument('--text-only',action='store_true')
             p=actions.add_parser('review');p.add_argument('id');p.add_argument('--file',required=True,help='UTF-8 review')
     audit=sub.add_parser('audit').add_subparsers(dest='action',required=True)
     for name in ('sources','history','tasks'):audit.add_parser(name)
@@ -32,8 +32,8 @@ def main():
         if name=='submit':p.add_argument('--engine',choices=['provider','comfy'],default='provider');p.add_argument('--redo',action='store_true')
     p=tasks.add_parser('status');p.add_argument('id')
     settings=sub.add_parser('provider').add_subparsers(dest='action',required=True)
-    settings.add_parser('status');p=settings.add_parser('configure');p.add_argument('--provider',choices=['wan3','wan','seedance'],default='wan3');p.add_argument('--resolution',choices=['480p','720p','1080p'],default='720p');p.add_argument('--audio',action='store_true');p.add_argument('--ratio',choices=['16:9','9:16','1:1'],default='16:9')
-    p=sub.add_parser('secret');p.add_argument('--provider',choices=['wan3','wan','seedance'],default='wan3')
+    settings.add_parser('status');p=settings.add_parser('configure');p.add_argument('--provider',choices=['wan3-prime','wan3','wan','seedance'],default='wan3-prime');p.add_argument('--resolution',choices=['480p','720p','1080p'],default='720p');p.add_argument('--audio',action='store_true');p.add_argument('--ratio',choices=['16:9','9:16','1:1'],default='16:9');p.add_argument('--image-model',choices=['qwen-image-3.0-pro','qwen-image-3.0'])
+    p=sub.add_parser('secret');p.add_argument('--provider',choices=['wan3-prime','wan3','wan','seedance'],default='wan3-prime')
     budgets=sub.add_parser('budgets').add_subparsers(dest='action',required=True)
     budgets.add_parser('show');p=budgets.add_parser('authorize');p.add_argument('--image',type=float,required=True);p.add_argument('--video',type=float,required=True);p.add_argument('--source',required=True,help='Explicit human total-budget authorization source; not quality approval')
     p=sub.add_parser('budget');p.add_argument('amount',type=float)
@@ -64,7 +64,7 @@ def main():
             else:result=api('projects/switch',{'project_id':args.id})
         elif group=='provider':
             if args.action=='status':result=api('providers')
-            else:result=api('settings',{'provider':args.provider,'resolution':args.resolution,'audio':args.audio,'ratio':args.ratio},api('state'))
+            else:result=api('settings',{'provider':args.provider,'resolution':args.resolution,'audio':args.audio,'ratio':args.ratio,**({'image_model':args.image_model} if args.image_model else {})},api('state'))
         elif group=='budgets':
             result=api('budgets') if args.action=='show' else api('budgets/authorize',{'image_limit':args.image,'video_limit':args.video,'source':args.source},api('state'))
         elif group=='secret':
@@ -103,7 +103,11 @@ def main():
                     else:
                         item=next((x for x in rows if x['id']==args.id),None)
                         if item is None:raise ValueError('记录不存在')
-                        if args.action=='approve':item['approved']=not args.revoke
+                        if args.action=='approve':
+                            if args.text_only:item['text_approved']=not args.revoke;item['approved']=False
+                            else:
+                                result=api('approvals/shot',{'shot_id':item['id'],'image_task_id':item.get('storyboard_task_id'),'approved':not args.revoke,'source':'CLI: human explicitly approved the current image/content'},state)
+                                print(json.dumps({'ok':True,'data':result},ensure_ascii=False));return 0
                         elif args.action=='review':item['review']=Path(args.file).read_text()
                         else:
                             updated=file_json(args.file);updated.pop('id',None);item.update(updated)
@@ -117,7 +121,7 @@ def main():
                 else:
                     task=next((t for t in state['tasks'] if t['id']==args.id),None)
                     if task is None:raise ValueError('任务不存在')
-                    result=api('provider/poll' if task['provider'] in ('wan3','wan','seedance') else 'poll',{'task_id':args.id},state)
+                    result=api('provider/poll' if task['provider'] in ('wan3-prime','wan3','wan','seedance') else 'poll',{'task_id':args.id},state)
         print(json.dumps({'ok':True,'data':result},ensure_ascii=False));return 0
     except Exception as e:
         print(json.dumps({'ok':False,'error':str(e)},ensure_ascii=False),file=sys.stderr);return 1

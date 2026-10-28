@@ -65,7 +65,7 @@ class StudioTests(unittest.TestCase):
         s=server.read();s['shots'][0]['reference_images']=['https://example.com/role.png'];s['shots'][0]['duration']=5;server.save(s)
         with patch('providers.transport',side_effect=AssertionError('network forbidden')):
             code,result=self.post('provider/preview',{'shot_id':s['shots'][0]['id']})
-            self.assertEqual(code,200);self.assertFalse(result['network_called']);self.assertEqual(result['estimated_cny'],3.0)
+            self.assertEqual(code,200);self.assertFalse(result['network_called']);self.assertEqual(result['estimated_cny'],4.5)
             self.assertEqual(self.post('provider/submit',{'shot_id':s['shots'][0]['id']})[0],400)
     def test_credentials_not_in_database_export_or_logs(self):
         import contextlib,io,os
@@ -103,13 +103,47 @@ class StudioTests(unittest.TestCase):
     def test_separate_budget_http_and_budgeted_video_redo(self):
         import os
         with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'STUDIO_SECRET_FILE':str(Path(tmp)/'private'/'credentials.json')}):
-            s=server.read();s['budget']=1;s['shots'][0].update(approved=True,estimate=1.5,duration=5,reference_images=[]);s['settings'].update(provider='wan3',resolution='480p');s['tasks']=[{'id':'old-video','shot_id':s['shots'][0]['id'],'name':'old','provider':'wan3','provider_task_id':'old-id','status':'completed','estimate':1.5}];server.save(s)
+            s=server.read();s['budget']=1;s['shots'][0].update(approved=True,estimate=1.5,duration=5,reference_images=[]);s['settings'].update(provider='wan3',resolution='480p');shot=s['shots'][0];shot.update(storyboard_task_id='test-image',storyboard_local='/media/1/test-image.png',storyboard_sha256='0'*64,storyboard_image='https://example.com/approved.png',approved_image_task_id='test-image');shot['approval_snapshot']=server.workflow_state.record_approval(s,shot,'test human','test-time');s['tasks']=[{'id':'old-video','shot_id':s['shots'][0]['id'],'name':'old','provider':'wan3','provider_task_id':'old-id','status':'completed','estimate':1.5}];server.save(s)
             code,s=self.post('budgets/authorize',{'image_limit':3,'video_limit':7,'source':'test explicit category budget'})
             self.assertEqual(code,200);self.assertTrue(s['shots'][0]['approved']);self.assertFalse(s['budget_authorizations'][-1]['quality_approval'])
             with patch.object(server.providers.Provider,'headers',return_value={}),patch.object(server.providers.Provider,'submit',return_value='new-video-id') as submit:
                 self.assertEqual(self.post('provider/submit',{'shot_id':s['shots'][0]['id']})[0],400)
                 code,result=self.post('provider/submit',{'shot_id':s['shots'][0]['id'],'redo':True});self.assertEqual(code,200);self.assertEqual(result['tasks'][-1]['provider_task_id'],'new-video-id');self.assertEqual(submit.call_count,1)
                 self.assertEqual(self.post('provider/submit',{'shot_id':s['shots'][0]['id'],'redo':True})[0],400);self.assertEqual(submit.call_count,1)
+    def test_pause_blocks_all_new_media_but_preserves_budget(self):
+        import os
+        with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'STUDIO_SECRET_FILE':str(Path(tmp)/'private'/'credentials.json')}):
+            s=server.read();server.generation_scope.authorize_budgets(s['project_id'],server.DATA/'studio.db',3,7,'test budget',s['revision'])
+            data=server.generation_scope.read();data[str(s['project_id'])]['paused']=True;server.generation_scope.path().write_text(json.dumps(data))
+            with patch.object(server.providers.Provider,'submit') as video,patch.object(server.image_provider.ImageProvider,'submit') as image,patch.object(server,'remote') as comfy:
+                for path in ['image/submit','provider/submit','submit']:
+                    code,result=self.post(path,{'shot_id':s['shots'][0]['id']});self.assertEqual(code,400);self.assertIn('暂停',result['error'])
+                video.assert_not_called();image.assert_not_called();comfy.assert_not_called()
+            summary=server.generation_scope.budget_summary(s,server.DATA/'studio.db');self.assertEqual(summary['image']['limit_cny'],3);self.assertEqual(summary['video']['limit_cny'],7);self.assertTrue(summary['image']['generation_paused'])
+            server.generation_scope.authorize_budgets(s['project_id'],server.DATA/'studio.db',4,8,'test edit while paused',s['revision']);self.assertFalse(server.generation_scope.active(s['project_id'],server.DATA/'studio.db'))
+    def test_approved_image_is_frozen_when_late_candidate_arrives(self):
+        s=server.read();shot=s['shots'][0];shot.update(storyboard_task_id='old',storyboard_local='/media/1/old.png',storyboard_sha256='0'*64,approved_image_task_id='old',approved=True)
+        shot['approval_snapshot']=server.workflow_state.record_approval(s,shot,'test approval','time')
+        s['image_tasks']=[{'id':'old','shot_id':shot['id'],'provider_task_id':'old-provider','status':'completed','estimate':.2},{'id':'new','shot_id':shot['id'],'provider_task_id':'new-provider','status':'queued','estimate':.2}];server.save(s)
+        result={'status':'completed','image_urls':['https://example.aliyuncs.com/new.png'],'usage':{},'actual_cost_cny':None}
+        with patch.object(server.image_provider.ImageProvider,'status',return_value=result),patch.object(server,'cache_image',return_value='/media/1/new.png'):
+            code,response=self.post('image/poll',{'task_id':'new'})
+        self.assertEqual(code,200);self.assertEqual(response['shots'][0]['storyboard_local'],'/media/1/old.png');self.assertTrue(response['shots'][0]['approved']);self.assertEqual(response['shots'][0]['pending_storyboard']['task_id'],'new')
+    def test_image_approval_binds_local_current_asset_and_context(self):
+        import hashlib
+        s=server.read();shot=s['shots'][0];shot.update(storyboard_local='/media/1/approval.png',storyboard_task_id='image-approved')
+        server.save(s)
+        with tempfile.TemporaryDirectory() as tmp,patch.object(server,'ROOT',Path(tmp)):
+            asset=Path(tmp)/'assets'/'1'/'approval.png';asset.parent.mkdir(parents=True);asset.write_bytes(b'local image fixture')
+            code,result=self.post('approvals/shot',{'shot_id':shot['id'],'image_task_id':'image-approved','approved':True,'source':'test explicit image review'})
+            self.assertEqual(code,200);current=result['shots'][0];self.assertEqual(current['approval_snapshot']['image_sha256'],hashlib.sha256(asset.read_bytes()).hexdigest());self.assertTrue(server.workflow_state.valid_approval(result,current))
+            result['shots'][0]['prompt']='edited';self.assertFalse(server.workflow_state.valid_approval(result,result['shots'][0]))
+    def test_sequence_requery_preserves_first_version_acceptance(self):
+        s=server.read();s['tasks']=[{'id':'film','kind':'sequence','shot_id':'__project_sequence__','name':'film','provider':'wan3-prime','provider_task_id':'provider-film','status':'completed','estimate':1,'approval_snapshot':[]}];s['final_video']={'task_id':'film','local_url':'/media/1/film.mp4','review_status':'accepted_first_version','review_task_id':'film','review_source':'human provisional acceptance'};server.save(s)
+        result={'status':'completed','video_url':'https://example.aliyuncs.com/film.mp4','usage':{},'actual_cost_cny':None}
+        with patch.object(server.providers.Provider,'status',return_value=result),patch.object(server.media_files,'cache_video',return_value=('/media/1/film.mp4',{'verified':True,'has_audio':True})):
+            code,response=self.post('provider/poll',{'task_id':'film'})
+        self.assertEqual(code,200);self.assertEqual(response['final_video']['review_status'],'accepted_first_version');self.assertEqual(response['final_video']['review_source'],'human provisional acceptance')
     def test_remote_host_restriction(self):
         for url in ['http://localhost.evil.test','http://127.0.0.1.evil.test','https://localhost','http://user@localhost','http://localhost/path']:
             with self.assertRaises(ValueError):server.remote(url,'/system_stats')

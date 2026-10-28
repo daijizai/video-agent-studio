@@ -4,6 +4,7 @@ import providers
 import image_provider
 import generation_scope
 import media_files
+import workflow_state
 import re
 import copy
 from datetime import datetime,timezone
@@ -26,7 +27,7 @@ def init():
         c.execute('CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, current_project INTEGER)')
         c.execute('INSERT OR IGNORE INTO workspace VALUES (1,1)')
         if not c.execute('SELECT 1 FROM state').fetchone():
-            s={'title':'雾港来信','episode':'EP 01 · 消失的第七分钟','demo':True,'target_duration':30,'budget':120,'script':'雨夜，旧港口的钟楼突然停在 23:53。\n\n林雾收到一封来自七分钟后的语音。电话里，是她自己的声音：不要登上最后一班渡轮。\n\n陈渡在码头等她。他手中的船票，印着明天的日期。','continuity':'林雾始终佩戴银色旧手表；陈渡不知道语音的来源。港口时间停在 23:53。','characters':[{'id':'lin','name':'林雾','role':'主角 / 调查记者','version':1,'notes':'28 岁，黑色齐肩短发，灰色风衣，左腕银色旧手表。冷静、敏锐，右眉有细小伤疤。','color':'#729c9b'},{'id':'chen','name':'陈渡','role':'主角 / 渡轮驾驶员','version':1,'notes':'32 岁，深蓝工作夹克，短发，左手旧烧伤。说话克制，始终随身携带黄铜钥匙。','color':'#ac9071'}],'shots':[],'tasks':[],'settings':{'comfy_url':'','workflow':''},'events':['已载入示例策划内容；没有生成媒体或产生费用。']}
+            s={'title':'雾港来信','episode':'EP 01 · 消失的第七分钟','demo':True,'target_duration':30,'budget':120,'script':'雨夜，旧港口的钟楼突然停在 23:53。\n\n林雾收到一封来自七分钟后的语音。电话里，是她自己的声音：不要登上最后一班渡轮。\n\n陈渡在码头等她。他手中的船票，印着明天的日期。','continuity':'林雾始终佩戴银色旧手表；陈渡不知道语音的来源。港口时间停在 23:53。','characters':[{'id':'lin','name':'林雾','role':'主角 / 调查记者','version':1,'notes':'28 岁，黑色齐肩短发，灰色风衣，左腕银色旧手表。冷静、敏锐，右眉有细小伤疤。','color':'#729c9b'},{'id':'chen','name':'陈渡','role':'主角 / 渡轮驾驶员','version':1,'notes':'32 岁，深蓝工作夹克，短发，左手旧烧伤。说话克制，始终随身携带黄铜钥匙。','color':'#ac9071'}],'shots':[],'tasks':[],'settings':{'comfy_url':'','workflow':'','provider':'wan3-prime','resolution':'720p','audio':False,'image_model':'qwen-image-3.0-pro'},'events':['已载入示例策划内容；没有生成媒体或产生费用。']}
             for i,(name,frame,duration,prompt) in enumerate([('雾中的钟楼','远景 · 缓慢推进',8,'雨夜的旧港口，钟楼停在23:53，低饱和青绿色，电影光影'),('七分钟后的来电','近景 · 固定机位',6,'林雾站在雨棚下看手机，灰风衣，银色旧手表，冷光映在脸上'),('最后一班渡轮','全景 · 横向跟随',8,'陈渡站在渡轮入口，深蓝工作夹克，手持纸船票，海雾'),('明天的船票','特写 · 缓慢拉近',5,'湿润的纸船票与黄铜钥匙，背景虚化的港口灯光')]):
                 s['shots'].append({'id':str(uuid.uuid4()),'name':name,'frame':frame,'duration':duration,'prompt':prompt,'approved':False,'status':'待确认','estimate':8,'review':'','asset':''})
             c.execute('INSERT INTO state VALUES (1,?)',(json.dumps(s,ensure_ascii=False),))
@@ -50,7 +51,7 @@ def read(project_id=None):
         c.execute('BEGIN')
         row=c.execute('SELECT body FROM state WHERE id=?',(project_id,)).fetchone()
         if not row:raise ValueError('项目不存在')
-        s=json.loads(row[0]);s.setdefault('image_tasks',[]);s.setdefault('target_duration',30 if s.get('demo') else 120);s['project_id']=project_id;s['revision']=c.execute('SELECT COALESCE(MAX(id),0) FROM revisions WHERE project_id=?',(project_id,)).fetchone()[0];return s
+        s=json.loads(row[0]);s.setdefault('image_tasks',[]);s.setdefault('target_duration',30 if s.get('demo') else 120);s['project_id']=project_id;s['revision']=c.execute('SELECT COALESCE(MAX(id),0) FROM revisions WHERE project_id=?',(project_id,)).fetchone()[0];s['workflow']=workflow_state.derive(s);return s
 def save(s):
     project_id=s.get('project_id',current_project())
     with db() as c:
@@ -67,7 +68,7 @@ def create_project(title):
     title=str(title).strip()
     if not title or len(title)>80:raise ValueError('项目名称须为 1–80 个字符')
     s={'title':title,'episode':'','demo':False,'target_duration':120,'budget':0,'script':'','continuity':'','characters':[],'shots':[],'tasks':[],'image_tasks':[],
-       'settings':{'comfy_url':'','workflow':'','provider':'wan3','resolution':'720p','audio':False},'events':['新项目已创建；尚无生成任务。']}
+       'settings':{'comfy_url':'','workflow':'','provider':'wan3-prime','resolution':'720p','image_model':'qwen-image-3.0-pro','audio':False},'events':['新项目已创建；尚无生成任务。']}
     with db() as c:
         result=c.execute('INSERT INTO state(body) VALUES (?)',(json.dumps(secret_store.redact(s),ensure_ascii=False),));pid=result.lastrowid
         c.execute('UPDATE workspace SET current_project=? WHERE id=1',(pid,))
@@ -122,12 +123,12 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path=='/api/projects':return self.reply(project_list())
         if self.path=='/api/state':return self.reply(read())
         if self.path=='/api/health':
-            s=read();active=generation_scope.active(s['project_id'],DATA/'studio.db');scope=generation_scope.read().get(str(s['project_id']),{}) if active else {}
+            s=read();active=generation_scope.active(s['project_id'],DATA/'studio.db');scope=generation_scope.read().get(str(s['project_id']),{});scope=scope if scope.get('database')==str((DATA/'studio.db').resolve()) else {}
             budgets=generation_scope.budget_summary(s,DATA/'studio.db');separate=scope.get('budget_mode')=='separate_v1'
             image_count=sum(t['status']!='rejected' for t in s['image_tasks']);video_count=sum(t['status']!='rejected' for t in s['tasks'])
-            return self.reply({'ffmpeg':bool(shutil.which('ffmpeg')),'ffprobe':bool(shutil.which('ffprobe')),'paid_generation':active,'wan3_credential_present':bool(secret_store.get_key('WAN3_API_KEY')),'image_generation':active and (budgets['image']['authorized'] and budgets['image']['remaining_cny']>0 if separate else image_count<scope.get('image_limit',0)),'video_generation':active and (budgets['video']['authorized'] and budgets['video']['remaining_cny']>0 if separate else video_count<scope.get('video_limit',0)),'budgets':budgets,'budget_mode':scope.get('budget_mode','legacy'),'image_limit':scope.get('image_limit',0),'video_limit':scope.get('video_limit',0)})
+            return self.reply({'ffmpeg':bool(shutil.which('ffmpeg')),'ffprobe':bool(shutil.which('ffprobe')),'paid_generation':active,'generation_paused':bool(scope.get('paused')),'wan3_credential_present':bool(secret_store.get_key('WAN3_API_KEY')),'image_generation':active and (budgets['image']['authorized'] and budgets['image']['remaining_cny']>0 if separate else image_count<scope.get('image_limit',0)),'video_generation':active and (budgets['video']['authorized'] and budgets['video']['remaining_cny']>0 if separate else video_count<scope.get('video_limit',0)),'budgets':budgets,'budget_mode':scope.get('budget_mode','legacy'),'image_limit':scope.get('image_limit',0),'video_limit':scope.get('video_limit',0)})
         if self.path=='/api/budgets':return self.reply(generation_scope.budget_summary(read(),DATA/'studio.db'))
-        if self.path=='/api/providers':return self.reply(providers.config_status())
+        if self.path=='/api/providers':return self.reply(providers.config_status(read()))
         if self.path=='/api/export':return self.reply(read())
         if self.path=='/api/revisions':
             with db() as c:return self.reply([dict(r) for r in c.execute('SELECT id,created,body FROM revisions WHERE project_id=? ORDER BY id DESC LIMIT 30',(current_project(),))])
@@ -146,6 +147,7 @@ class Handler(SimpleHTTPRequestHandler):
                     with db() as c:c.execute('UPDATE workspace SET current_project=? WHERE id=1',(project_id,))
                     return self.reply(result)
                 s=read()
+                if action in ('/api/submit','/api/image/submit','/api/provider/submit','/api/sequence/submit') and generation_scope.is_paused(s['project_id'],DATA/'studio.db'):raise ValueError('用户已暂停本项目新生成；预算和历史保留，不能提交新媒体')
                 if 'project_id' in p and int(p['project_id'])!=s['project_id']:raise ValueError('当前项目已切换，请刷新页面后再保存')
                 if 'revision' in p and int(p['revision'])!=s['revision']:raise ValueError('项目已被其他窗口或CLI修改，请刷新后重试')
                 if action=='/api/save':
@@ -156,28 +158,41 @@ class Handler(SimpleHTTPRequestHandler):
                     if any(not 0<=float(x['estimate'])<=100000 for x in s['shots']):raise ValueError('估价必须为 0–100000')
                     if any(not 1<=float(x['duration'])<=300 for x in s['shots']):raise ValueError('镜头时长须为 1–300 秒')
                     if sum(float(x['duration']) for x in s['shots'])>300:raise ValueError('单集总时长不可超过 5 分钟')
+                elif action=='/api/approvals/shot':
+                    shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
+                    if p.get('approved',True):
+                        if p.get('image_task_id')!=shot.get('storyboard_task_id'):raise ValueError('当前图片已变化，请重读后审阅')
+                        local=shot.get('storyboard_local','')
+                        if not re.fullmatch(r'/media/'+str(s['project_id'])+r'/[A-Za-z0-9_-]+\.png',local):raise ValueError('当前图片必须已下载本机')
+                        asset=(ROOT/'assets'/local.removeprefix('/media/')).resolve()
+                        if not asset.is_relative_to((ROOT/'assets').resolve()) or not asset.is_file():raise ValueError('当前图片尚不可审阅')
+                        shot['storyboard_sha256']=__import__('hashlib').sha256(asset.read_bytes()).hexdigest()
+                        shot['approval_snapshot']=workflow_state.record_approval(s,shot,secret_store.redact(str(p.get('source','用户明确审阅当前分镜图片与内容'))[:500]),datetime.now(timezone.utc).isoformat())
+                        shot['approved_image_task_id']=shot['storyboard_task_id'];shot['approved']=True;shot['image_quality']='approved'
+                    else:shot['approved']=False;shot['image_quality']='unreviewed'
                 elif action=='/api/budgets/authorize':
                     source=str(p.get('source','local user confirmation'))[:500]
                     record=generation_scope.authorize_budgets(s['project_id'],DATA/'studio.db',p.get('image_limit'),p.get('video_limit'),source,s['revision'])
                     s['budget_authorizations']=generation_scope.read()[str(s['project_id'])]['budget_authorization_history']
                 elif action=='/api/settings':
-                    s['settings']={**s['settings'], **{k:p[k] for k in ('comfy_url','workflow','provider','resolution','audio','ratio') if k in p}}
+                    s['settings']={**s['settings'], **{k:p[k] for k in ('comfy_url','workflow','provider','resolution','audio','ratio','image_model') if k in p}}
                 elif action=='/api/credentials':
                     name=providers.CATALOG.get(p.get('provider'),{}).get('key_env')
                     secret_store.write_key(name,p.get('value'))
                     return self.reply({'saved':True,'credential_present':True,'connection':'unverified'})
                 elif action=='/api/image/prepare':
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
-                    return self.reply(image_provider.ImageProvider().prepare(shot))
+                    return self.reply(image_provider.ImageProvider().prepare(shot,s['settings']))
                 elif action=='/api/image/submit':
                     if not generation_scope.active(s['project_id'],DATA/'studio.db'):raise ValueError('当前项目无图像生成授权')
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
                     if any(t['status'] in ('submitting','unknown','queued','running') for t in s['image_tasks']):raise ValueError('当前项目已有在途或待核对图像任务，请先完成/核对原任务；图片提交采用单在途节流')
-                    if any(time.time()-float(t.get('submitted_epoch',0))<3.2 for t in s['image_tasks'] if t['status']!='rejected'):raise ValueError('图片提交间隔不足3.2秒，请稍后提交；尚未发起模型请求')
+                    interval=12.2 if (shot.get('image_model') or s['settings'].get('image_model') or image_provider.DEFAULT_IMAGE_MODEL).endswith('-pro') else 3.2
+                    if any(time.time()-float(t.get('submitted_epoch',0))<interval for t in s['image_tasks'] if t['status']!='rejected'):raise ValueError('图片提交尚未满足该模型平滑间隔，请稍后提交；未发起模型请求')
                     previous=[t for t in s['image_tasks'] if t['shot_id']==shot['id']]
                     if any(t['status'] in ('submitting','unknown','queued','running') for t in previous):raise ValueError('已有图像任务，查询原任务，禁止重复提交')
                     if previous and not p.get('redo'):raise ValueError('重生成须明确指定redo；历史图像保留')
-                    provider=image_provider.ImageProvider();prepared=provider.prepare(shot);provider.headers()
+                    provider=image_provider.ImageProvider();prepared=provider.prepare(shot,s['settings']);provider.headers()
                     task={'id':str(uuid.uuid4()),'submitted_at':datetime.now(timezone.utc).isoformat(),'submitted_epoch':time.time(),'shot_id':shot['id'],'name':shot['name'],'provider_task_id':None,'status':'submitting','estimate':prepared['estimated_cny'],'request':prepared['payload']}
                     task['content_revision']=s['revision'];task['content_snapshot']=content_snapshot(s,shot)
                     task['authorization_id']=generation_scope.check(s,DATA/'studio.db','image',task['estimate'],prepared['payload']['model'],shot_id=shot['id'])
@@ -208,27 +223,29 @@ class Handler(SimpleHTTPRequestHandler):
                     shot=next(x for x in s['shots'] if x['id']==task['shot_id'])
                     latest=next((t for t in reversed(s['image_tasks']) if t['shot_id']==shot['id'] and t['status']!='rejected'),None)
                     is_current=latest is not None and latest['id']==task['id']
-                    if is_current:shot['image_status']=result['status']
+                    frozen=workflow_state.valid_approval(s,shot) and task['id']!=shot.get('approved_image_task_id')
+                    if is_current and not frozen:shot['image_status']=result['status']
                     if result['status']=='completed' and result['image_urls']:
                         local=None
                         try:local=cache_image(s['project_id'],task['id'],result['image_urls'][0]);task['local_artifact']=local;task.pop('download_error',None)
                         except Exception:task['download_error']='图片已生成，但本地下载未完成；可再次查询原任务，不会重新生成'
-                        if is_current:
+                        if is_current and frozen:shot['pending_storyboard']={'task_id':task['id'],'local_artifact':local,'note':'已批准图冻结，新到候选不得静默替换或继承审批'}
+                        if is_current and not frozen:
                             if shot.get('storyboard_task_id')!=task['id']:
                                 shot['approved']=False;shot['image_quality']='unreviewed'
                             shot['storyboard_task_id']=task['id'];shot['storyboard_image']=result['image_urls'][0]
                             if local:shot['storyboard_local']=local
                 elif action=='/api/provider/preview':
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
-                    return self.reply(providers.Provider(s['settings'].get('provider','wan3')).prepare(shot,s['settings']))
+                    return self.reply(providers.Provider(s['settings'].get('provider','wan3-prime')).prepare(shot,s['settings']))
                 elif action=='/api/provider/submit':
                     if not generation_scope.active(s['project_id'],DATA/'studio.db'):raise ValueError('付费生成未授权，当前仅允许零请求预览')
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
-                    if not shot['approved']:raise ValueError('请先确认该镜头分镜')
+                    if not workflow_state.valid_approval(s,shot):raise ValueError('请先批准当前图片和内容版本；旧审批或文字确认不能替代')
                     previous=[t for t in s['tasks'] if t['shot_id']==shot['id']]
                     if any(t['status'] in ('submitting','queued','running','unknown') for t in previous):raise ValueError('该镜头有在途或未知任务，禁止重复提交')
                     if previous and not p.get('redo'):raise ValueError('已有终态任务；语义上需要重做时明确指定redo，仍检查本类别预算')
-                    provider=providers.Provider(s['settings'].get('provider','wan3'))
+                    provider=providers.Provider(s['settings'].get('provider','wan3-prime'))
                     prepared=provider.prepare(shot,s['settings'])
                     estimate=max(float(shot['estimate']),prepared['estimated_cny'])
                     provider.headers();provider.base_url() # Validate credentials/config before durable submission intent.
@@ -244,17 +261,24 @@ class Handler(SimpleHTTPRequestHandler):
                     task=next(t for t in s['tasks'] if t['id']==p['task_id'])
                     if not task.get('provider_task_id'):raise ValueError('缺少任务编号，禁止自动重试')
                     task['last_checked_at']=datetime.now(timezone.utc).isoformat()
-                    result=providers.Provider(task['provider']).status(task['provider_task_id'])
+                    try:
+                        result=providers.Provider(task['provider']).status(task['provider_task_id']);task.pop('poll_error',None)
+                    except Exception as error:
+                        task['poll_error']=str(error);save(s);return self.reply(read())
                     task.update(result)
                     if result['status']=='completed' and result.get('video_url'):
                         try:task['local_video'],task['media_info']=media_files.cache_video(ROOT,s['project_id'],task['id'],result['video_url']);task.pop('download_error',None)
                         except Exception:task['download_error']='视频已生成，本地下载未完成；可再次查询原任务，不会重生成'
-                    next(x for x in s['shots'] if x['id']==task['shot_id'])['status']='待检查' if result['status']=='completed' else result['status']
+                    if task.get('kind')=='sequence':
+                        if task.get('local_video'):
+                            prior=s.get('final_video') or {};kept=prior if prior.get('task_id')==task['id'] else {}
+                            s['final_video']={**kept,'local_url':task['local_video'],'task_id':task['id'],'media_info':task.get('media_info',{}),'review_status':kept.get('review_status','pending'),'approval_snapshot':task.get('approval_snapshot',[])}
+                    else:next(x for x in s['shots'] if x['id']==task['shot_id'])['status']='待检查' if result['status']=='completed' else result['status']
                 elif action=='/api/connect':
                     r=remote(s['settings']['comfy_url'],'/system_stats');return self.reply({'connected':True,'system':r})
                 elif action=='/api/submit':
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
-                    if not shot['approved']:raise ValueError('请先确认该镜头分镜')
+                    if not (shot.get('text_approved') or shot['approved']):raise ValueError('请先确认该镜头文字分镜')
                     if any(t['shot_id']==shot['id'] and t['status'] not in ['failed','cancelled'] for t in s['tasks']):raise ValueError('已有执行记录，请查询原任务，禁止重复提交')
                     reserved=sum(t['estimate'] for t in s['tasks']+s.get('image_tasks',[]) if t['status']!='cancelled')
                     if reserved+float(shot['estimate'])>float(s['budget']):raise ValueError('预占金额将超过本集预算')

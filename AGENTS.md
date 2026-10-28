@@ -7,3 +7,6 @@
 - Keep the server bound to loopback. External providers and paid workflows require separate explicit authorization and a reviewed adapter.
 - The user authorizes normal iteration releases to daijizai/video-agent-studio after relevant tests and secret scans pass, without asking again. This does not authorize paid generation, secret disclosure, or destructive remote-history rewrites.
 - Keep preview screenshots local: public screenshot upload was rejected by automatic approval review. Publish source/text documentation only unless separate image publication authorization is established.
+
+- Honor the project's generation pause across image, video and local workflow submissions. Budget/model edits do not resume execution; retain unused balances and evidence.
+- Derive stages through workflow_state.py from persisted facts. Current image approvals are content/image-bound; provisional film acceptance is distinct from objective quality guarantees.

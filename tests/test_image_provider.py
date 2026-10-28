@@ -6,7 +6,7 @@ import image_provider
 class ImageContracts(unittest.TestCase):
  def test_reference_payload_and_estimate(self):
   p=image_provider.ImageProvider();r=p.prepare({'prompt':'same fictional adult in a room','reference_images':['https://example.com/face.png','https://example.com/room.png']})
-  self.assertEqual(r['estimated_cny'],.22);self.assertEqual(r['payload']['parameters']['n'],1);self.assertEqual(r['payload']['parameters']['size'],'720*1280')
+  self.assertEqual(r['estimated_cny'],.29);self.assertEqual(r['payload']['parameters']['n'],1);self.assertEqual(r['payload']['parameters']['size'],'720*1280')
   self.assertEqual(r['payload']['input']['messages'][0]['content'][0],{'image':'https://example.com/face.png'})
   self.assertFalse(r['network_called'])
  def test_task_id_and_status(self):
@@ -21,6 +21,11 @@ class ImageContracts(unittest.TestCase):
   self.assertTrue(r['warnings']);self.assertIn('不画分格',r['payload']['input']['messages'][0]['content'][-1]['text'])
   r=p.prepare({'prompt':'一幅特写：右手握黄铜钥匙，右后方门保持关闭。'})
   self.assertEqual(r['warnings'],[]);self.assertIn('右手握黄铜钥匙',r['payload']['input']['messages'][0]['content'][-1]['text'])
+ def test_pro_default_and_standard_selection_with_2k_price(self):
+  p=image_provider.ImageProvider()
+  r=p.prepare({'prompt':'single portrait'});self.assertEqual(r['payload']['model'],'qwen-image-3.0-pro');self.assertEqual(r['estimated_cny'],.25)
+  r=p.prepare({'prompt':'single portrait','image_size':'2048*2048','reference_images':['https://example.com/a.png']});self.assertEqual(r['estimated_cny'],.52)
+  r=p.prepare({'prompt':'single portrait','image_model':'qwen-image-3.0'});self.assertEqual(r['estimated_cny'],.18)
  def test_limit_and_paid_gate(self):
   p=image_provider.ImageProvider(Mock())
   with self.assertRaises(ValueError):p.prepare({'prompt':'x','reference_images':['https://example.com/a.png']*4})
