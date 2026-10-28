@@ -86,9 +86,15 @@ with tempfile.TemporaryDirectory() as tmp:
             saved_click(page.get_by_role('button',name='保存剧本',exact=True))
             page.get_by_role('status').filter(has_text='已保存到本机').wait_for()
             assert server.read()['script']=='新的故事正文，来自普通用户。'
-            page.get_by_role('link',name='03 角色资产库',exact=True).click()
-            page.locator('#ct0').fill('冷静的记者，短发，习惯先观察再行动。')
-            saved_click(page.locator('[data-character="0"]'));page.get_by_role('status').filter(has_text='已保存到本机').wait_for()
+            page.get_by_role('link',name='03 素材资产库',exact=True).click()
+            page.locator('.material-card [data-edit]').first.click()
+            page.get_by_label('简要设定',exact=True).fill('冷静的记者，短发，习惯先观察再行动。')
+            with page.expect_response('**/api/assets/edit'):
+                page.get_by_role('button',name='保存为新版本',exact=True).click()
+            page.wait_for_function('document.querySelector(".material-summary")?.textContent.includes("冷静的记者")')
+            page.locator('[data-history]').first.click()
+            with page.expect_response('**/api/assets/adopt'):
+                page.get_by_role('button',name='人工采用 v2',exact=True).click()
             assert server.read()['characters'][0]['notes']=='冷静的记者，短发，习惯先观察再行动。'
             page.get_by_role('link',name='06 工具与设置',exact=True).click()
             page.locator('#provider-choice').wait_for()

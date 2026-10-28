@@ -37,3 +37,15 @@ Finalization: pure persisted-fact workflow tests cover preparation, image-only a
 - 现有 `browser_workspace.py`、`browser_polling.py`、`browser_lightbox.py`、`browser_ark.py`、`browser_video.py`、`browser_workflow.py`、`browser_budgets.py` 全部通过。API估价预览测试明确进入诊断；普通镜头编辑测试改用故事意图。Ark浏览器生成仅为隔离Mock，视频播放测试仅用临时合成测试素材，不访问实际项目或模型。
 - 实际数据库只读核对：《明日失物所》6镜、6个有效审批、`COMPLETE`、`accepted_first_version`；没有启动8766、执行实际生成、写入或迁移实际SQLite。
 - 规则是确定性文本/结构线索，不能检验真实画面或保证一致性；反馈不会自动触发模型、改写提示词或恢复已暂停生成。
+
+
+## 2026-10-29 · AI素材资产库（角色＋物品）
+
+- 主路径为故事/设定整理→AI独立母版→人工采用→必要视图→固定镜头引用；导入已有图片为补充。无新增场景分类，旧角色文字通过只读兼容投影保留。
+- 接入真实Qwen异步、Seedream同步生成适配；素材任务有asset_id/kind/version/view，进入图片类别账本且无假shot_id。总费用先预占、提交意图先持久化，保留unknown锁、原任务查询、缓存恢复、模型范围与暂停门禁。未提交计划可取消释放预占。
+- 镜头图片请求实际传入选中素材版本的原始像素，并保存规范化payload指纹/可复原清单/固定版本快照。新候选、新母版或采用版本不静默替换已批准镜头。
+- 发布范围Python回归130项通过（排除另一工作线尚未发布的test_seedream_edit）；其中素材管理/生成/HTTP路由27项。规则JS10项通过，源码语法与diff检查通过。
+- 新 browser_asset_library.py 全闭环通过：两类筛选、旧角色空态、暂停预览/禁用、Mock AI母版、人工采用前加载、独立视图/可选导入/历史、设定候选、固定镜头引用、重载隔离、手机/横屏布局和原生对话框Tab循环/Escape/焦点恢复。
+- 原9组隔离浏览器回归通过：storyboard_public、storyboard_assist、workspace、ark、polling、lightbox、video、workflow、budgets。素材相关旧角色编辑测试改为新版本/人工采用流程，未绕过检查。
+- 所有生成证明均为Mock/临时项目，不代表实际模型已出图；真实项目未提交任何素材生成。8766已更新并经实际页面只读核对：仍选中项目3《夜班清场》，两角色尚无图、素材任务0；项目2保持六镜有效审批与首版接受。重启前后所有项目body与授权文件指纹完全一致，两个实际项目仍暂停。截图留本机，不提交或上传私人素材。
+- JPEG/WebP复用现有FFmpeg做受限解码；PNG标准库校验。无新pip包，无大模型下载或GPU租赁。规则与人工采用流程不保证模型绝不输出多格/身份偏差，需逐张审阅。

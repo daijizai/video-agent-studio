@@ -35,7 +35,7 @@ def check(state,database,kind,estimate,model,shot_id=None):
    if shot_id not in extension['shot_ids']:continue
    added=[t for t in images if t['id'] not in extension['baseline_task_ids']]
    cost=sum((Decimal(str(t['estimate'])) for t in added),Decimal('0'))
-   if sum(t['shot_id']==shot_id for t in added)<1 and cost+Decimal(str(estimate))<=Decimal(str(extension['max_extra_cny'])):allowed=True
+   if sum(t.get('shot_id')==shot_id for t in added)<1 and cost+Decimal(str(estimate))<=Decimal(str(extension['max_extra_cny'])):allowed=True
   if not allowed:raise ValueError('该镜头没有剩余的指定增量授权；不扩大其他镜头次数')
  reserved=sum((Decimal(str(t['estimate'])) for t in images+videos),Decimal('0'))
  if reserved+Decimal(str(estimate))>min(Decimal(str(scope['max_cny'])),Decimal(str(state['budget']))):raise ValueError('将超过本次Demo的固定授权预算')
@@ -63,7 +63,7 @@ def extend_images(project_id,database,shot_ids,max_extra_cny,note):
   state=json.loads(row[0])
  if not set(shot_ids).issubset({s['id'] for s in state['shots']}):raise ValueError('镜头不属于该项目')
  images=[t for t in state.get('image_tasks',[]) if t['status']!='rejected']
- if any(t['status'] in ('submitting','uploading','queued','running','unknown','archive_pending') for t in images):raise ValueError('先核对在途任务，不借增量绕过unknown')
+ if any(t['status'] in ('reserved','submitting','uploading','queued','running','unknown','archive_pending') for t in images):raise ValueError('先核对在途任务，不借增量绕过unknown')
  data=read();scope=data[str(project_id)]
  if any(set(shot_ids)&set(e['shot_ids']) for e in scope.get('extensions',[])):raise ValueError('这些镜头已有增量授权，不重复扩大')
  reserved=sum((Decimal(str(t['estimate'])) for t in images+state.get('tasks',[])),Decimal('0'))
@@ -85,7 +85,7 @@ def category_ledger(state,kind,limit=None):
  known=Decimal('0');committed=Decimal('0');inflight=Decimal('0');unsettled=Decimal('0');unknown=0
  for task in rows:
   if task.get('status')=='rejected':continue
-  estimate=Decimal(str(task.get('estimate',0)));actual=task.get('actual_cost_cny');live=task.get('status') in ('submitting','uploading','queued','running','unknown','archive_pending')
+  estimate=Decimal(str(task.get('estimate',0)));actual=task.get('actual_cost_cny');live=task.get('status') in ('reserved','submitting','uploading','queued','running','unknown','archive_pending')
   if actual is None:
    unknown+=1;committed+=estimate
    if live:inflight+=estimate

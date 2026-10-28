@@ -6,6 +6,8 @@ import generation_scope
 import media_files
 import workflow_state
 import storyboard_contract
+import asset_library
+import asset_generation
 import base64
 import comfy_executor
 import re
@@ -52,7 +54,7 @@ def cache_image(project_id,task_id,url):
 def cache_sync_image(s,task):
     """Recover a durable sync result without submitting again or overwriting newer art."""
     shot=next(x for x in s['shots'] if x['id']==task['shot_id'])
-    latest=next((t for t in reversed(s['image_tasks']) if t['shot_id']==shot['id'] and t['status']!='rejected' and (t.get('provider')!='comfy-masked-repair' or t.get('status')=='adopted')),None)
+    latest=next((t for t in reversed(s['image_tasks']) if t.get('shot_id')==shot['id'] and t['status']!='rejected' and (t.get('provider')!='comfy-masked-repair' or t.get('status')=='adopted')),None)
     is_current=latest is not None and latest['id']==task['id']
     frozen=workflow_state.valid_approval(s,shot) and task['id']!=shot.get('approved_image_task_id')
     local=None
@@ -66,6 +68,9 @@ def cache_sync_image(s,task):
             shot['approved']=False;shot['image_quality']='unreviewed';shot.pop('storyboard_local',None)
         shot['storyboard_task_id']=task['id'];shot['storyboard_image']=task['image_urls'][0];shot['image_status']='completed'
         if local:shot['storyboard_local']=local
+def material_service():return asset_library.AssetLibrary(ROOT,DATA/'studio.db',LOCK)
+def material_generation():return asset_generation.AssetGeneration(material_service())
+
 def current_project():
     with db() as c:return c.execute('SELECT current_project FROM workspace WHERE id=1').fetchone()[0]
 def read(project_id=None):
@@ -154,10 +159,44 @@ class Handler(SimpleHTTPRequestHandler):
                     if not chunk:break
                     self.wfile.write(chunk);remaining-=len(chunk)
         except (BrokenPipeError,ConnectionResetError):return
+    def serve_material(self,head=False):
+        try:
+            match=re.fullmatch(r'/asset-media/([1-9][0-9]*)/[a-f0-9]{32}\.(png|jpg|webp)',self.path)
+            if not match:raise ValueError('素材地址无效')
+            data,info=material_service().media(int(match[1]),self.path)
+            self.send_response(200);self.send_header('Content-Type',info['mime']);self.send_header('Content-Length',str(len(data)))
+            self.send_header('X-Content-Type-Options','nosniff');self.send_header('Cache-Control','private, max-age=3600');self.end_headers()
+            if not head:self.wfile.write(data)
+        except (BrokenPipeError,ConnectionResetError):return
+        except Exception:return self.reply({'error':'素材图片不可用或不属于当前项目'},404)
+
+    def handle_material(self,p):
+        try:
+            pid=p.get('project_id');action=self.path.removeprefix('/api/assets/')
+            if action.startswith('generation/'):
+                service=material_generation();action=action.removeprefix('generation/')
+                if action=='preview':result=service.preview(pid,p.get('items'),p.get('model'))
+                elif action=='submit':result=service.submit(pid,p.get('revision'),p.get('items'),p.get('model'),p.get('fingerprint'),p.get('request_id'))
+                elif action=='poll':result=service.poll(pid,p.get('task_id'))
+                elif action=='advance':result=service.advance(pid,p.get('batch_id'))
+                elif action=='cancel':result=service.cancel_reserved(pid,p.get('batch_id'))
+                else:raise ValueError('未知素材生成操作')
+            else:result=material_service().mutate(pid,p.get('revision'),action,p)
+            return self.reply(result)
+        except ValueError as error:return self.reply({'error':secret_store.redact(str(error))},400)
+        except Exception:return self.reply({'error':'素材操作未完成，请刷新并核对原记录；不会自动重新生成'},400)
+
     def do_HEAD(self):
+        if self.path.startswith('/asset-media/'):return self.serve_material(head=True)
         if self.path.startswith('/media/'):return self.serve_media(head=True)
         return super().do_HEAD()
     def do_GET(self):
+        if self.path.startswith('/asset-media/'):return self.serve_material()
+        if self.path in ('/api/assets','/api/assets/propose'):
+            try:
+                pid=current_project()
+                return self.reply(material_service().propose(pid) if self.path.endswith('/propose') else material_generation().catalog(pid))
+            except Exception:return self.reply({'error':'素材库暂不可用，请刷新当前项目'},400)
         if self.path.startswith('/media/'):return self.serve_media()
         if self.path=='/api/projects':return self.reply(project_list())
         if self.path=='/api/state':return self.reply(read())
@@ -205,16 +244,23 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if self.headers.get('Origin') and self.headers['Origin'] != 'http://'+self.headers.get('Host',''):raise ValueError('拒绝跨站写入')
             n=int(self.headers.get('Content-Length','0'))
-            if n<0 or n>(28*1024*1024 if self.path=='/api/comfy/mask' else 2000000):raise ValueError('请求过大')
+            if n<0 or n>(28*1024*1024 if self.path=='/api/comfy/mask' else 17*1024*1024 if self.path=='/api/assets/upload' else 2000000):raise ValueError('请求过大')
             p=json.loads(self.rfile.read(n) or b'{}')
             if not isinstance(p,dict):raise ValueError('请求须为对象')
+            if self.path.startswith('/api/assets/'):
+                return self.handle_material(p)
             if self.path.startswith('/api/comfy/'):
                 return self.handle_repair(p)
             # Route repair image polling before the legacy global-lock handler.
             if self.path=='/api/image/poll':
                 with LOCK:
                     snapshot=read()
+                    is_material=any(t['id']==p.get('task_id') and t.get('kind')=='asset_image' for t in snapshot['image_tasks'])
                     is_repair=any(t['id']==p.get('task_id') and t.get('provider')=='comfy-masked-repair' for t in snapshot['image_tasks'])
+                if is_material:
+                    try:
+                        material_generation().poll(p.get('project_id'),p.get('task_id'));return self.reply(read(p.get('project_id')))
+                    except Exception:return self.reply({'error':'素材原任务查询未完成，请在素材库核对'},400)
                 if is_repair:return self.handle_repair(p,action='poll',state_response=True)
             with LOCK:
                 action=self.path
@@ -236,6 +282,8 @@ class Handler(SimpleHTTPRequestHandler):
                     if any(not 0<=float(x['estimate'])<=100000 for x in s['shots']):raise ValueError('估价必须为 0–100000')
                     if any(not 1<=float(x['duration'])<=300 for x in s['shots']):raise ValueError('镜头时长须为 1–300 秒')
                     if sum(float(x['duration']) for x in s['shots'])>300:raise ValueError('单集总时长不可超过 5 分钟')
+                    previous_by_id={shot['id']:shot for shot in previous_shots}
+                    if any((shot.get('asset_references') or [])!=(previous_by_id.get(shot['id'],{}).get('asset_references') or []) for shot in s['shots']):raise ValueError('请通过镜头的素材选择入口更改版本引用，不能直接覆盖引用记录')
                     storyboard_contract.validate_shots(s['shots'])
                     storyboard_contract.invalidate_changed(previous_shots,s['shots'])
                 elif action=='/api/approvals/shot':
@@ -247,6 +295,7 @@ class Handler(SimpleHTTPRequestHandler):
                         asset=(ROOT/'assets'/local.removeprefix('/media/')).resolve()
                         if not asset.is_relative_to((ROOT/'assets').resolve()) or not asset.is_file():raise ValueError('当前图片尚不可审阅')
                         shot['storyboard_sha256']=__import__('hashlib').sha256(asset.read_bytes()).hexdigest()
+                        asset_library.validate_references(s,shot,material_service())
                         shot['approval_snapshot']=workflow_state.record_approval(s,shot,secret_store.redact(str(p.get('source','用户明确审阅当前分镜图片与内容'))[:500]),datetime.now(timezone.utc).isoformat())
                         shot['approved_image_task_id']=shot['storyboard_task_id'];shot['approved']=True;shot['image_quality']='approved'
                         if s['settings'].get('provider')=='seedance25':
@@ -265,18 +314,21 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.reply({'saved':True,'credential_present':True,'connection':'unverified'})
                 elif action=='/api/image/prepare':
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
-                    return self.reply(image_provider.for_model(shot.get('image_model') or s['settings'].get('image_model')).prepare(shot,s['settings']))
+                    prepared=asset_generation.prepare_storyboard(material_service(),{**shot,'_material_project_id':s['project_id']},s['settings'])
+                    return self.reply({**prepared,'payload':prepared.get('request_manifest',prepared['payload'])})
                 elif action=='/api/image/submit':
                     if not generation_scope.active(s['project_id'],DATA/'studio.db'):raise ValueError('当前项目无图像生成授权')
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
-                    if any(t['status'] in tuple(comfy_executor.LIVE) for t in s['image_tasks']):raise ValueError('当前项目已有在途或待核对图像任务，请先完成/核对原任务；图片提交采用单在途节流')
+                    if any(t['status'] in tuple(comfy_executor.LIVE)+('reserved',) for t in s['image_tasks']):raise ValueError('当前项目已有在途或待核对图像任务，请先完成/核对原任务；图片提交采用单在途节流')
                     interval=12.2 if (shot.get('image_model') or s['settings'].get('image_model') or image_provider.DEFAULT_IMAGE_MODEL).endswith('-pro') else 3.2
                     if any(time.time()-float(t.get('submitted_epoch',0))<interval for t in s['image_tasks'] if t['status']!='rejected'):raise ValueError('图片提交尚未满足该模型平滑间隔，请稍后提交；未发起模型请求')
-                    previous=[t for t in s['image_tasks'] if t['shot_id']==shot['id']]
+                    previous=[t for t in s['image_tasks'] if t.get('shot_id')==shot['id']]
                     if any(t['status'] in tuple(comfy_executor.LIVE) for t in previous):raise ValueError('已有图像任务，查询原任务，禁止重复提交')
                     if previous and not p.get('redo'):raise ValueError('重生成须明确指定redo；历史图像保留')
-                    provider=image_provider.for_model(shot.get('image_model') or s['settings'].get('image_model'));prepared=provider.prepare(shot,s['settings']);provider.headers()
-                    task={'id':str(uuid.uuid4()),'submitted_at':datetime.now(timezone.utc).isoformat(),'submitted_epoch':time.time(),'shot_id':shot['id'],'name':shot['name'],'provider_task_id':None,'status':'submitting','estimate':prepared['estimated_cny'],'request':prepared['payload']}
+                    provider=image_provider.for_model(shot.get('image_model') or s['settings'].get('image_model'));prepared=asset_generation.prepare_storyboard(material_service(),{**shot,'_material_project_id':s['project_id']},s['settings']);provider.headers()
+                    task={'id':str(uuid.uuid4()),'submitted_at':datetime.now(timezone.utc).isoformat(),'submitted_epoch':time.time(),'shot_id':shot['id'],'name':shot['name'],'provider_task_id':None,'status':'submitting','estimate':prepared['estimated_cny'],'request':prepared.get('request_manifest',prepared['payload'])}
+                    if prepared.get('material_reference_snapshot'):
+                        task['material_reference_snapshot']=prepared['material_reference_snapshot'];task['request_sha256']=prepared['request_sha256']
                     task['provider']=prepared['provider']
                     task['content_revision']=s['revision'];task['content_snapshot']=content_snapshot(s,shot)
                     task['authorization_id']=generation_scope.check(s,DATA/'studio.db','image',task['estimate'],prepared['payload']['model'],shot_id=shot['id'])
@@ -318,7 +370,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception as error:
                         task['poll_error']=str(error);save(s);return self.reply(read())
                     shot=next(x for x in s['shots'] if x['id']==task['shot_id'])
-                    latest=next((t for t in reversed(s['image_tasks']) if t['shot_id']==shot['id'] and t['status']!='rejected' and (t.get('provider')!='comfy-masked-repair' or t.get('status')=='adopted')),None)
+                    latest=next((t for t in reversed(s['image_tasks']) if t.get('shot_id')==shot['id'] and t['status']!='rejected' and (t.get('provider')!='comfy-masked-repair' or t.get('status')=='adopted')),None)
                     is_current=latest is not None and latest['id']==task['id']
                     frozen=workflow_state.valid_approval(s,shot) and task['id']!=shot.get('approved_image_task_id')
                     if is_current and not frozen:shot['image_status']=result['status']
@@ -339,7 +391,7 @@ class Handler(SimpleHTTPRequestHandler):
                     if not generation_scope.active(s['project_id'],DATA/'studio.db'):raise ValueError('付费生成未授权，当前仅允许零请求预览')
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
                     if not workflow_state.valid_approval(s,shot):raise ValueError('请先批准当前图片和内容版本；旧审批或文字确认不能替代')
-                    previous=[t for t in s['tasks'] if t['shot_id']==shot['id']]
+                    previous=[t for t in s['tasks'] if t.get('shot_id')==shot['id']]
                     if any(t['status'] in ('submitting','queued','running','unknown') for t in previous):raise ValueError('该镜头有在途或未知任务，禁止重复提交')
                     if previous and not p.get('redo'):raise ValueError('已有终态任务；语义上需要重做时明确指定redo，仍检查本类别预算')
                     provider=providers.Provider(s['settings'].get('provider','wan3-prime'))
@@ -379,7 +431,7 @@ class Handler(SimpleHTTPRequestHandler):
                 elif action=='/api/submit':
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
                     if not (shot.get('text_approved') or shot['approved']):raise ValueError('请先确认该镜头文字分镜')
-                    if any(t['shot_id']==shot['id'] and t['status'] not in ['failed','cancelled'] for t in s['tasks']):raise ValueError('已有执行记录，请查询原任务，禁止重复提交')
+                    if any(t.get('shot_id')==shot['id'] and t['status'] not in ['failed','cancelled'] for t in s['tasks']):raise ValueError('已有执行记录，请查询原任务，禁止重复提交')
                     reserved=sum(t['estimate'] for t in s['tasks']+s.get('image_tasks',[]) if t['status']!='cancelled')
                     if reserved+float(shot['estimate'])>float(s['budget']):raise ValueError('预占金额将超过本集预算')
                     workflow=json.loads(s['settings']['workflow'])
