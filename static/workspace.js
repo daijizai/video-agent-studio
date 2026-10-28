@@ -1,6 +1,8 @@
 async function renderWorkspace() {
   const workspace=await api('projects');
-  $('.crumb').innerHTML=`<label for="project-select">工作空间 / </label><select id="project-select" aria-label="选择项目">${workspace.projects.map(p=>`<option value="${p.id}" ${p.id===state.project_id?'selected':''}>${esc(p.title)}${p.demo?' · 示例':''}</option>`).join('')}</select><button id="new-project">＋ 新建项目</button>`;
+  const pins=(()=>{try{return JSON.parse(localStorage.getItem('frame-workspace-pinned-projects-v1')||'[]')}catch{return []}})();
+  const projects=[...workspace.projects].sort((a,b)=>Number(Array.isArray(pins)&&pins.includes(b.id))-Number(Array.isArray(pins)&&pins.includes(a.id))||b.id-a.id);
+  $('.crumb').innerHTML=`<a href="/workspace.html" class="workspace-home-link" aria-label="返回工作空间首页" style="color:inherit;text-decoration:none;border-bottom:1px solid currentColor;padding:8px 0">工作空间</a><span aria-hidden="true"> / </span><select id="project-select" aria-label="选择项目">${projects.map(p=>`<option value="${p.id}" ${p.id===state.project_id?'selected':''}>${esc(p.title)}${p.demo?' · 示例':''}</option>`).join('')}</select><button id="new-project">＋ 新建项目</button>`;
   $('.header-actions .badge').textContent=state.demo?'示例项目 · 策划内容':'独立项目 · 本机保存';
   $('#project-select').onchange=()=>act(async()=>{state=await api('projects/switch',{project_id:Number($('#project-select').value)});health=await api('health');toast('项目已切换，所有制作数据独立保存');render()});
   $('#new-project').onclick=()=>{
