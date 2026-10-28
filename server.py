@@ -10,6 +10,7 @@ import asset_library
 import asset_generation
 import base64
 import comfy_executor
+import seedream_edit
 import re
 import copy
 from datetime import datetime,timezone
@@ -54,7 +55,7 @@ def cache_image(project_id,task_id,url):
 def cache_sync_image(s,task):
     """Recover a durable sync result without submitting again or overwriting newer art."""
     shot=next(x for x in s['shots'] if x['id']==task['shot_id'])
-    latest=next((t for t in reversed(s['image_tasks']) if t.get('shot_id')==shot['id'] and t['status']!='rejected' and (t.get('provider')!='comfy-masked-repair' or t.get('status')=='adopted')),None)
+    latest=next((t for t in reversed(s['image_tasks']) if t.get('shot_id')==shot['id'] and t['status']!='rejected' and (t.get('provider') not in ('comfy-masked-repair','seedream-edit') or t.get('status')=='adopted')),None)
     is_current=latest is not None and latest['id']==task['id']
     frozen=workflow_state.valid_approval(s,shot) and task['id']!=shot.get('approved_image_task_id')
     local=None
@@ -115,6 +116,9 @@ def remote(base,path,payload=None):
     with urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect).open(req,timeout=6) as r:return json.load(r)
 def content_snapshot(s,shot):
     return copy.deepcopy({'project_id':s['project_id'],'revision':s['revision'],'shot':shot,'characters':s['characters'],'continuity':s['continuity'],'settings':s['settings'],'sources':s.get('source_manifest',[]),'project_brief':s.get('project_brief','')})
+def seedream_edit_service():
+    return seedream_edit.SeedreamEditService(ROOT,DATA/'studio.db',lock=LOCK,selected=current_project)
+
 def repair_service():
     """Operator-only profile. Browser settings cannot select models or files."""
     profile={}
@@ -206,6 +210,22 @@ class Handler(SimpleHTTPRequestHandler):
             image_count=sum(t['status']!='rejected' for t in s['image_tasks']);video_count=sum(t['status']!='rejected' for t in s['tasks'])
             return self.reply({'ffmpeg':bool(shutil.which('ffmpeg')),'ffprobe':bool(shutil.which('ffprobe')),'paid_generation':active,'generation_paused':bool(scope.get('paused')),'wan3_credential_present':bool(secret_store.get_key('WAN3_API_KEY')),'image_generation':active and (budgets['image']['authorized'] and budgets['image']['remaining_cny']>0 if separate else image_count<scope.get('image_limit',0)),'video_generation':active and (budgets['video']['authorized'] and budgets['video']['remaining_cny']>0 if separate else video_count<scope.get('video_limit',0)),'budgets':budgets,'budget_mode':scope.get('budget_mode','legacy'),'image_limit':scope.get('image_limit',0),'video_limit':scope.get('video_limit',0)})
         if self.path=='/api/budgets':return self.reply(generation_scope.budget_summary(read(),DATA/'studio.db'))
+        if self.path=='/api/repair/preflight':
+            try:
+                result=seedream_edit_service().preflight();state=read()
+                try:
+                    generation_scope.check(state,DATA/'studio.db','image',seedream_edit.PRICE,seedream_edit.MODEL)
+                    result['execution_allowed']=True
+                except Exception:result['execution_allowed']=False
+                result['resumable_task_ids']=[]
+                for task in state['image_tasks']:
+                    if task.get('provider')!='seedream-edit' or task.get('kind')=='asset_image' or task.get('status')!='submitting':continue
+                    scoped=copy.deepcopy(state);scoped['image_tasks']=[t for t in scoped['image_tasks'] if t['id']!=task['id']]
+                    try:
+                        if generation_scope.check(scoped,DATA/'studio.db','image',task['estimate'],task['request_model'],shot_id=task['shot_id'])==task['authorization_id']:result['resumable_task_ids'].append(task['id'])
+                    except Exception:pass
+                result['backend']='seedream';return self.reply(result)
+            except Exception:return self.reply({'ready':False,'execution_allowed':False,'backend':'seedream','api_verified':False,'quality_verified':False})
         if self.path=='/api/comfy/preflight':
             try:return self.reply(repair_service().public_preflight())
             except Exception:return self.reply({'ready':False,'message':'局部修复暂不可用','quality_verified':False,'generation_called':False})
@@ -217,6 +237,31 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path=='/api/revisions':
             with db() as c:return self.reply([dict(r) for r in c.execute('SELECT id,created,body FROM revisions WHERE project_id=? ORDER BY id DESC LIMIT 30',(current_project(),))])
         return super().do_GET()
+    def handle_edit(self,p,action=None,state_response=False):
+        action=action or self.path.removeprefix('/api/repair/')
+        try:
+            with LOCK:
+                state=read();pid=p.get('project_id')
+                if type(pid) is not int or pid!=state['project_id']:raise ValueError('项目已切换')
+                if action in ('begin','adopt') and p.get('revision')!=state['revision']:raise ValueError('项目版本已变化')
+                if action=='begin':
+                    backend=p.get('backend','seedream')
+                    if backend not in ('seedream','local'):raise ValueError('未知执行方式')
+                else:
+                    task=next((t for t in state['image_tasks'] if t.get('id')==p.get('task_id')),None)
+                    if not task or task.get('kind')=='asset_image' or task.get('provider') not in ('seedream-edit','comfy-masked-repair'):raise ValueError('不是镜头修复任务')
+                    backend='seedream' if task['provider']=='seedream-edit' else 'local'
+            if backend=='local':return self.handle_repair(p,action=action,state_response=state_response)
+            service=seedream_edit_service()
+            if action=='begin':result=service.begin(pid,p['revision'],p['shot_id'],p['source_url'],p['region'],p['description'],p['request_id'])
+            elif action=='execute':result=service.execute(pid,p['task_id'])
+            elif action=='poll':result=service.poll(pid,p['task_id'])
+            elif action=='adopt':result=service.adopt(pid,p['revision'],p['task_id'],p['candidate_sha256'],secret_store.redact(p.get('source','')))
+            else:raise ValueError('未知编辑操作')
+            return self.reply(read(pid) if state_response else result)
+        except Exception:
+            return self.reply({'error':'图片编辑未完成。请核对当前画面、图片预算和执行许可；结果不明时请勿重复提交。'},400)
+
     def handle_repair(self,p,action=None,state_response=False):
         action=action or self.path.removeprefix('/api/comfy/')
         try:
@@ -251,17 +296,19 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.handle_material(p)
             if self.path.startswith('/api/comfy/'):
                 return self.handle_repair(p)
+            if self.path.startswith('/api/repair/'):
+                return self.handle_edit(p)
             # Route repair image polling before the legacy global-lock handler.
             if self.path=='/api/image/poll':
                 with LOCK:
                     snapshot=read()
                     is_material=any(t['id']==p.get('task_id') and t.get('kind')=='asset_image' for t in snapshot['image_tasks'])
-                    is_repair=any(t['id']==p.get('task_id') and t.get('provider')=='comfy-masked-repair' for t in snapshot['image_tasks'])
+                    is_repair=any(t['id']==p.get('task_id') and t.get('provider') in ('comfy-masked-repair','seedream-edit') and t.get('kind')!='asset_image' for t in snapshot['image_tasks'])
                 if is_material:
                     try:
                         material_generation().poll(p.get('project_id'),p.get('task_id'));return self.reply(read(p.get('project_id')))
                     except Exception:return self.reply({'error':'素材原任务查询未完成，请在素材库核对'},400)
-                if is_repair:return self.handle_repair(p,action='poll',state_response=True)
+                if is_repair:return self.handle_edit(p,action='poll',state_response=True)
             with LOCK:
                 action=self.path
                 if action=='/api/projects/new':return self.reply(create_project(p.get('title','')))
@@ -370,7 +417,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception as error:
                         task['poll_error']=str(error);save(s);return self.reply(read())
                     shot=next(x for x in s['shots'] if x['id']==task['shot_id'])
-                    latest=next((t for t in reversed(s['image_tasks']) if t.get('shot_id')==shot['id'] and t['status']!='rejected' and (t.get('provider')!='comfy-masked-repair' or t.get('status')=='adopted')),None)
+                    latest=next((t for t in reversed(s['image_tasks']) if t.get('shot_id')==shot['id'] and t['status']!='rejected' and (t.get('provider') not in ('comfy-masked-repair','seedream-edit') or t.get('status')=='adopted')),None)
                     is_current=latest is not None and latest['id']==task['id']
                     frozen=workflow_state.valid_approval(s,shot) and task['id']!=shot.get('approved_image_task_id')
                     if is_current and not frozen:shot['image_status']=result['status']

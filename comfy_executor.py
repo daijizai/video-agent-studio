@@ -161,7 +161,7 @@ class RepairService:
         with self.transaction() as con:
             state = self.state(con, project_id, revision); shot = self.gate(state, shot_id, source_url)
             if assets.sha(source) != shot.get('storyboard_sha256'): raise ValueError('原图文件已变化，请重新审阅')
-            if any(t.get('request_id') == request_id or t.get('status') in LIVE for t in state.get('image_tasks', [])):
+            if any(t.get('request_id') == request_id or t.get('status') in LIVE|{'reserved'} for t in state.get('image_tasks', [])):
                 raise ValueError('存在原请求或在途/未知图片任务，禁止重提')
             authorization_id = self.authorize(state, self.database, 'image', 0, templates.MODEL_SCOPE, shot_id=shot_id)
             archived_source = self.write_asset(project_id, source_name, source)

@@ -1,7 +1,7 @@
 // Query-only, serial, project-checked polling. This module never calls a submit endpoint.
 (function(){
  const attempts=new Map(),failures=new Map();let busy=false,timer;
- function eligible(tasks){return tasks.filter(t=>(t.provider_task_id||(t.provider==='seedream'&&t.status==='completed'&&t.download_error))&&(['queued','running','archive_pending'].includes(t.status)||(t.status==='unknown'&&t.provider_task_id)||(t.status==='completed'&&t.download_error))&&(attempts.get(t.id)||0)<90)}
+ function eligible(tasks){return tasks.filter(t=>(t.provider_task_id||(['seedream','seedream-edit'].includes(t.provider)&&t.status==='completed'&&t.download_error))&&(['queued','running','archive_pending'].includes(t.status)||(t.status==='unknown'&&t.provider_task_id)||(t.status==='completed'&&t.download_error))&&(attempts.get(t.id)||0)<90)}
  async function tick(){
   if(busy){schedule(8000);return}busy=true;let delay=document.hidden?30000:8000;
   try{
@@ -14,7 +14,7 @@
      const fresh=await api('state');if(fresh.project_id!==pid||state.project_id!==pid)break;state=fresh;
      const updated=await api(task.pollKind==='video'?'provider/poll':'image/poll',{task_id:task.id});if(updated.project_id!==pid||state.project_id!==pid)break;
      state=updated;const result=(task.pollKind==='video'?updated.tasks:updated.image_tasks).find(t=>t.id===task.id);
-     if(result.poll_error){failures.set(task.id,(failures.get(task.id)||0)+1);delay=Math.max(delay,Math.min(60000,8000*2**failures.get(task.id)))}else failures.delete(task.id);
+     if(result.poll_error || result.download_error){failures.set(task.id,(failures.get(task.id)||0)+1);delay=Math.max(delay,Math.min(60000,8000*2**failures.get(task.id)))}else failures.delete(task.id);
      updateImageProgress();
     }catch(error){failures.set(task.id,(failures.get(task.id)||0)+1);delay=Math.max(delay,Math.min(60000,8000*2**failures.get(task.id)));const bar=document.querySelector('#live-production');if(bar)bar.textContent='查询暂时失败：'+error.message+'；将退避重查，不重新生成。'}
    }
