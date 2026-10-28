@@ -45,13 +45,16 @@ class AssetHTTPTests(AssetFixture):
         original=copy.deepcopy(self.state())
         code,result=self.api('assets/create',{'kind':'object','name':'钥匙','summary':'黄铜'})
         self.assertEqual(code,200);asset=result['assets'][-1]
+        from asset_handoff_fixture import handoff
+        code,result=self.api('assets/design',{'asset_id':asset['id'],'profile':handoff(self.root,'object')})
+        self.assertEqual(code,200)
         code,result=self.api('assets/upload',{'asset_id':asset['id'],'filename':'image.png','view_tag':'main','base64':base64.b64encode(png()).decode()})
         self.assertEqual(code,200);view=result['assets'][-1]['versions'][-1]['views'][0]
         with urllib.request.urlopen(self.url+view['url']) as response:
             self.assertEqual(response.headers['Content-Type'],'image/png');self.assertEqual(response.headers['X-Content-Type-Options'],'nosniff')
             self.assertEqual(response.read(),png())
         self.assertEqual(self.state()['characters'],original['characters']);self.assertEqual(self.state()['shots'],original['shots'])
-        self.assertEqual(self.api('assets/adopt',{'asset_id':asset['id'],'version':2})[0],200)
+        self.assertEqual(self.api('assets/adopt',{'asset_id':asset['id'],'version':3})[0],200)
         with self.service._connect() as con:con.execute('UPDATE workspace SET current_project=2')
         with self.assertRaises(urllib.error.HTTPError) as error:urllib.request.urlopen(self.url+view['url'])
         self.assertEqual(error.exception.code,404)

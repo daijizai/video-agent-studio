@@ -36,7 +36,7 @@ PORT=8766 python3 server.py
 
 素材以AI生成为主：从故事/简要设定整理角色与物品，预览本次必要视图和总费用，再生成独立母版候选、人工采用、基于明确母版补角度，最后供镜头固定版本引用。复用Qwen/Seedream真实图片适配，角色与物品任务明确分类，计入图片预算，不冒充镜头或视频。上传已有图片为可选补充。旧角色文字兼容保留，独立原图/历史/采用与镜头审批可追踪。界面不要求用户填机器提示或参考URL。
 
-当前实际生成仍暂停；接入和Mock验证不等于已经生成真实素材，也不自动恢复预算授权。详见 [素材库设计与验证](docs/MATERIAL_LIBRARY.md)。
+当前实际生成仍暂停；接入和Mock验证不等于已经生成真实素材，也不自动恢复预算授权。详见 [素材库设计与验证](docs/MATERIAL_LIBRARY.md)。Codex按独立[角色Skill](skills/frame-character-assets/SKILL.md)/[物品Skill](skills/frame-object-assets/SKILL.md)交接设计和视图描述，后端按[薄运行时合同](docs/MATERIAL_RECIPES.md)校验来源、母版依赖与请求；不在Python里猜外观或自动理解Skill。普通用户查看可读设计，不填生成锚点。
 
 ## 故事意图与内部一致性
 

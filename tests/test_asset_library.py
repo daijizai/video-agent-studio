@@ -12,6 +12,7 @@ import zlib
 from pathlib import Path
 
 import asset_library as lib
+from asset_handoff_fixture import handoff
 
 
 def png(width=384, height=384, color=(80,100,120)):
@@ -44,9 +45,23 @@ class AssetFixture(unittest.TestCase):
         return self.service.mutate(1,self.service.catalog(1)['revision'],action,payload)
 
     def create(self,kind='object',name='钥匙'):
-        return self.action('create',kind=kind,name=name,summary='黄铜，无钥匙圈')['assets'][-1]
+        asset=self.action('create',kind=kind,name=name,summary='黄铜，无钥匙圈')['assets'][-1]
+        return self.install_profile(asset['id'])
+
+    def install_profile(self,asset_id,profile=None):
+        """Simulate an already prepared Agent handoff without changing fixture versions."""
+        state=self.state();asset=next(a for a in lib.assets(state) if a['id']==asset_id)
+        if not any(a['id']==asset_id for a in state.get('material_assets',[])):state.setdefault('material_assets',[]).append(asset)
+        stored=next(a for a in state['material_assets'] if a['id']==asset_id)
+        selected=profile or handoff(self.root,stored['kind'])
+        selected['input_basis_hash']=__import__('asset_templates').design_input_hash(state,stored,lib._version(stored))
+        lib._version(stored)['design_profile']=selected
+        with self.service._connect() as con:con.execute('UPDATE state SET body=? WHERE id=1',(json.dumps(state,ensure_ascii=False),))
+        return next(a for a in self.service.catalog(1)['assets'] if a['id']==asset_id)
 
     def upload(self,asset,tag='main',data=None):
+        stored=next(a for a in self.service.catalog(1)['assets'] if a['id']==asset['id'])
+        if not lib._version(stored).get('design_profile'):self.install_profile(asset['id'])
         self.action('upload',asset_id=asset['id'],view_tag=tag,filename='image.png',base64=base64.b64encode(data or png()).decode())
         return next(a for a in self.service.catalog(1)['assets'] if a['id']==asset['id'])
 

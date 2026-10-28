@@ -15,6 +15,7 @@ import uuid
 from decimal import Decimal
 
 import asset_library as library
+import asset_templates
 import generation_scope
 import image_provider
 import providers
@@ -56,6 +57,17 @@ def prepare_storyboard(asset_service, shot, settings):
     if not refs:return provider.prepare(shot,settings)
     project_id=shot.get('_material_project_id')
     if type(project_id) is not int:raise ValueError('素材参考缺少项目绑定')
+    with asset_service.lock,asset_service._connect() as con:
+        con.execute('BEGIN');state=asset_service._load(con,project_id)
+        by_id={a['id']:a for a in library.assets(state)}
+        for ref in refs:
+            asset=by_id.get(ref.get('asset_id'))
+            if asset is None:raise ValueError('素材不属于当前项目')
+            pinned=library._version(asset,ref.get('version'))
+            asset_templates.verify_skill_source(asset_service.root,pinned.get('design_profile',{}),asset['kind'])
+            expected=asset_templates.review_record(state,asset,pinned)
+            if ref.get('production_review')!=expected:
+                raise ValueError('素材设计或制作配方已变化，请按当前规范审阅并显式更新镜头引用；历史请求不改写')
     inputs=[];replacements={}
     for ref in refs:
         for view in ref['views']:
@@ -131,38 +143,31 @@ class AssetGeneration:
         version = library._version(asset, item['version']); tag = item.get('view_tag')
         if tag not in library.VIEWS[asset['kind']]:
             raise ValueError('生成视图与素材类型不匹配')
-        references = []
-        if tag != MASTER[asset['kind']]:
-            number = item.get('reference_version'); image_id = item.get('reference_view_id')
-            if type(number) is not int or asset.get('adopted_version') != number:
-                raise ValueError('扩展视图须基于明确已采用的母版版本；请先生成并审阅母版')
-            reference_version = library._version(asset, number)
-            if (version['summary'], version.get('variant', '')) != (reference_version['summary'], reference_version.get('variant', '')):
-                raise ValueError('当前设定与母版不同，请先生成并采用对应设定的母版')
-            view = next((v for v in reference_version.get('views', []) if v['id'] == image_id), None)
-            if view is None:
-                raise ValueError('母版图片不属于明确采用的版本')
-            _, info = self.lib._checked_view(state['project_id'], view)
-            minimum, maximum = (384, 3072) if model.startswith('qwen') else (15, 6000)
-            if info['bytes'] > 10*1024*1024 or min(info['width'], info['height']) < minimum or max(info['width'], info['height']) > maximum:
+        asset_templates.verify_skill_source(self.lib.root,version.get('design_profile',{}),asset['kind'])
+        bundle=asset_templates.contract(state,asset,version,tag,model)
+        selected=asset_templates.select_reference_views(state,asset,version,tag,model,item.get('reference_version'),item.get('reference_view_id'))
+        references=[]
+        for view in selected:
+            _,info=self.lib._checked_view(state['project_id'],view)
+            minimum,maximum=(384,3072) if model.startswith('qwen') else (15,6000)
+            if info['bytes']>10*1024*1024 or min(info['width'],info['height'])<minimum or max(info['width'],info['height'])>maximum:
                 raise ValueError('母版图片不满足所选模型的参考尺寸或10MB限制，请选择合适母版')
-            references.append({'asset_id': asset['id'], 'version': number, **copy.deepcopy(view)})
-        name = version['name']; label = library.VIEWS[asset['kind']][tag]
-        description = (f"为作品《{state.get('title', '')}》制作一张独立的{label}素材。"
-            f"主体：{name}。类型：{'虚构角色' if asset['kind']=='character' else '独立物品'}。"
-            f"设定：{version['summary']}。外观版本：{version.get('variant', '')}。"
-            '从设定中提取外观特征，不把叙事动作或台词带入素材图。只呈现这一主体的指定视图，完整清楚、背景简洁，不画拼版、对比图、多个姿态或多个相同主体，不加说明文字。')
-        if references:
-            description += '严格保持参考母版的同一身份、面部/外形、服装/材质与设计，仅改变至指定观察角度，不重新设计主体。'
-        elif asset['kind'] == 'character':
-            description += '头像母版，以头肩为主，神态自然；建立本角色后续视图使用的外观。'
-        else:
-            description += '主图呈现单个完整物品的外形与材质，不加入持有人，不表示剧情中的数量或位置状态。'
+            references.append({'asset_id':asset['id'],'version':item['reference_version'],**copy.deepcopy(view)})
+        bundle.pop('contract_hash')
+        bundle['reference_bindings']=[{'asset_id':r['asset_id'],'version':r['version'],'view_id':r['id'],'tag':r['tag'],'sha256':r['sha256']} for r in references]
+        bundle['reference_review']=copy.deepcopy(next((r for r in reversed(asset.get('production_reviews',[])) if references and r.get('asset_version')==item['reference_version']),None))
+        bundle['contract_hash']=digest(bundle)
+        name=version['name'];label=library.VIEWS[asset['kind']][tag]
+        description=asset_templates.render_prompt(bundle)
+        if references:description+='\n仅使用绑定的已采用身份/全身/物品母版；保持同一外观，不重新设计。'
         markers = ['https://material-reference.invalid/'+v['sha256']+'.'+v['extension'] for v in references]
         spec = {'image_prompt': description, 'reference_images': markers, 'image_model': model,
-                'image_size': '1024*1024' if tag in ('portrait', 'main', 'head_front', 'head_side', 'head_back', 'detail') else '1536*2048'}
+                'image_size':bundle['template']['size']}
         prepared = self.provider_factory(model).prepare(spec, {'image_model': model})
         payload = copy.deepcopy(prepared['payload'])
+        bundle['concrete_mapping']=asset_templates.concrete_mapping(payload)
+        bundle['provider_mapping_hash']=digest(bundle['concrete_mapping'])
+        bundle.pop('contract_hash');bundle['contract_hash']=digest(bundle)
         def replace(value):
             if isinstance(value, str) and value in markers:
                 view = references[markers.index(value)]
@@ -173,7 +178,8 @@ class AssetGeneration:
         return {'asset_id': asset['id'], 'asset_kind': asset['kind'], 'asset_version': version['version'],
             'asset_snapshot': copy.deepcopy(version), 'target_view': tag, 'view_label': label,
             'name': name+' · '+label, 'model': model, 'provider': prepared['provider'],
-            'request': replace(payload), 'reference_inputs': references, 'estimate': prepared['estimated_cny']}
+            'request': replace(payload), 'reference_inputs': references, 'estimate': prepared['estimated_cny'],'production_contract':bundle,
+            'is_identity_master':tag==bundle['blueprint']['master_plan']['identity_tag']}
 
     def _plan(self, state, items, model):
         if model not in MODELS or not isinstance(items, list) or not 1 <= len(items) <= 8:
@@ -182,9 +188,12 @@ class AssetGeneration:
         pairs = [(j['asset_id'], j['target_view']) for j in jobs]
         if len(pairs) != len(set(pairs)):
             raise ValueError('同一素材的同一视图不能重复选择')
-        if any(j['target_view'] == MASTER[j['asset_kind']] and any(
+        if any(j['is_identity_master'] and any(
             k['asset_id'] == j['asset_id'] and k['target_view'] != j['target_view'] for k in jobs) for j in jobs):
             raise ValueError('请先审阅采用母版，再单独选择扩展视图')
+        if any(j['asset_kind']=='character' and j['target_view']=='body_front' and any(
+            k['asset_id']==j['asset_id'] and k['target_view']!='body_front' for k in jobs) for j in jobs):
+            raise ValueError('请先单独生成并审阅全身正面母版，再补其它视图')
         total = float(sum((Decimal(str(j['estimate'])) for j in jobs), Decimal('0')))
         return {'jobs': jobs, 'estimated_cny': total, 'fingerprint': digest(jobs)}
 
@@ -193,7 +202,8 @@ class AssetGeneration:
         return {'project_id': project_id, 'revision': state['revision'], 'fingerprint': plan['fingerprint'],
             'estimated_cny': plan['estimated_cny'], 'network_called': False,
             'items': [{k:j[k] for k in ('asset_id','asset_kind','asset_version','target_view','view_label','name','estimate')} for j in plan['jobs']],
-            'note': '每项1张独立图片；总额为本次保守预估，实际结算另记，不含自动重试。母版需人工采用后才能扩展。'}
+            'designs':[{'asset_id':j['asset_id'],'asset_version':j['asset_version'],**asset_templates.public_design(j['production_contract']['blueprint'])} for j in plan['jobs']],
+            'note':'系统设计草案待审阅；每项1张独立图片。先采用身份母版，再建立并采用全身正面，之后才补独立侧背视图。预估不含自动重试。'}
 
     def _authorize(self, state, estimate, model):
         pid = state['project_id']
@@ -230,6 +240,7 @@ class AssetGeneration:
                 task['content_snapshot'] = {'project_id':project_id,'revision':state['revision'],
                     'asset_id':job['asset_id'],'kind':job['asset_kind'],'asset_version':job['asset_version'],
                     'asset':copy.deepcopy(job['asset_snapshot']),'reference_inputs':copy.deepcopy(job['reference_inputs']),
+                    'production_contract':copy.deepcopy(job['production_contract']),
                     'story_title':state.get('title','')}
                 state.setdefault('image_tasks', []).append(task)
             state.setdefault('asset_generation_batches', []).append({'id': request_id, 'fingerprint': fingerprint,
@@ -260,6 +271,28 @@ class AssetGeneration:
         payload = replace(task['request'])
         return {'payload': payload, 'provider': task['provider'], 'estimated_cny': task['estimate']}
 
+    def _validate_reserved_contract(self,state,task):
+        saved=task.get('production_contract')
+        if not saved:raise ValueError('旧计划没有当前素材制作配方，请取消未提交项并重新预览')
+        asset=next(a for a in library.assets(state) if a['id']==task['asset_id'])
+        latest=library._version(asset)
+        if asset_templates.blueprint(state,asset,latest)['design_hash']!=saved['blueprint']['design_hash']:
+            raise ValueError('设计已变化，请取消旧计划并重新预览')
+        current=asset_templates.recipe(asset['kind'],task['target_view'],task['model'],latest.get('design_profile'))
+        if current['recipe_hash']!=saved['recipe_hash']:
+            raise ValueError('制作配方或模型映射已变化，请重新预览，不能沿用旧审批')
+        item={'asset_id':task['asset_id'],'version':task['asset_version'],'view_tag':task['target_view']}
+        if task['reference_inputs']:
+            item.update(reference_version=task['reference_inputs'][0]['version'],reference_view_id=task['reference_inputs'][-1]['id'])
+        concrete=self._job(state,item,task['model'])['production_contract']
+        if concrete.get('provider_mapping_hash')!=saved.get('provider_mapping_hash'):
+            raise ValueError('供应商实际参数映射已变化，请重新预览')
+        if task['reference_inputs']:
+            number=task['reference_inputs'][0]['version']
+            refs=asset_templates.select_reference_views(state,asset,library._version(asset,task['asset_version']),task['target_view'],task['model'],number,None)
+            saved_ids={r['id'] for r in task['reference_inputs']}
+            if not {r['id'] for r in refs}.issubset(saved_ids):raise ValueError('母版引用已变化，请重新预览')
+
     def advance(self, project_id, batch_id):
         # This starts only a previously user-confirmed, durably reserved job.
         state = self._state(project_id)
@@ -276,6 +309,7 @@ class AssetGeneration:
         interval = 12.2 if task['model'].endswith('-pro') else 3.2
         last = max((float(t.get('submitted_epoch',0)) for t in state['image_tasks'] if t['status'] != 'rejected'), default=0)
         if self.clock()-last < interval:return self.catalog(project_id)
+        self._validate_reserved_contract(state,task)
         prepared = self._hydrate(project_id, task); provider = self.provider_factory(task['model']); provider.headers()
         def begin(latest):
             current = next(t for t in latest['image_tasks'] if t['id'] == task['id'])
@@ -331,7 +365,7 @@ class AssetGeneration:
             asset = self.lib._asset(latest, current['asset_id'])
             siblings = [v for v in asset['versions'] if v.get('batch_id') == current['batch_id']]
             version = copy.deepcopy(siblings[-1] if siblings else current['asset_snapshot'])
-            if current['target_view']==MASTER[asset['kind']]:version['views']=[]
+            if current.get('is_identity_master',current['target_view']==MASTER[asset['kind']]):version['views']=[]
             image_id = current['id']; folder = self.lib._folder(project_id,create=True)
             file = folder/(image_id+'.'+info['extension'])
             try:
@@ -345,8 +379,12 @@ class AssetGeneration:
                 view = {'id':image_id,'tag':current['target_view'],'label':current['view_label'],
                     'url':f'/asset-media/{project_id}/{image_id}.{info["extension"]}', 'imported_at':library._now(),
                     'origin':{'type':'generated','task_id':task_id,'provider_url':urls[0],'model':current['model']},**info}
+                if current.get('production_contract'):
+                    view['production_binding']={key:current['production_contract'].get(key) for key in ('schema_version','contract_hash','reference_bindings')}
+                    view['production_binding'].update(design_hash=current['production_contract']['blueprint']['design_hash'],recipe_hash=current['production_contract']['recipe_hash'],mapping_hash=current['production_contract']['mapping_hash'],provider_mapping_hash=current['production_contract']['provider_mapping_hash'])
                 version.update(views=[v for v in version.get('views',[]) if v['tag']!=current['target_view']]+[view],
                     origin='generation',batch_id=current['batch_id'],base_version=current['asset_version'])
+                if current.get('production_contract'):version['production_contract']=copy.deepcopy(current['production_contract'])
                 appended=library._append(asset,version)
                 current.update(archived_version=appended['version'],local_artifact=view['url'],quality='unreviewed')
                 current.pop('download_error',None)

@@ -10,13 +10,19 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import server
 import workflow_state
+import asset_library
+import asset_templates
+from asset_handoff_fixture import handoff
 from playwright.sync_api import sync_playwright
 
 with tempfile.TemporaryDirectory() as tmp:
     root=Path(tmp);shutil.copytree(server.ROOT/'static',root/'static');server.ROOT=root
     server.DATA=root/'data';server.DATA.mkdir()
     os.environ['STUDIO_SECRET_FILE']=str(root/'private'/'credentials.json');server.init()
-    s=server.read();s.update(title='故事审阅测试项目',script='她发现了一张来自明天的登记卡。',continuity='INTERNAL-CONTINUITY-ONLY',project_brief='INTERNAL-IP-RULES-ONLY')
+    s=server.read();s['material_assets']=asset_library.assets(s)
+    for asset in s['material_assets']:
+        profile=handoff(root,'character');profile['input_basis_hash']=asset_templates.design_input_hash(s,asset,asset['versions'][0]);asset['versions'][0]['design_profile']=profile
+    s.update(title='故事审阅测试项目',script='她发现了一张来自明天的登记卡。',continuity='INTERNAL-CONTINUITY-ONLY',project_brief='INTERNAL-IP-RULES-ONLY')
     s['settings']['workflow']='INTERNAL-WORKFLOW-ONLY'
     folder=root/'assets'/'1';folder.mkdir(parents=True)
     for i,shot in enumerate(s['shots']):
@@ -92,9 +98,11 @@ with tempfile.TemporaryDirectory() as tmp:
             with page.expect_response('**/api/assets/edit'):
                 page.get_by_role('button',name='保存为新版本',exact=True).click()
             page.wait_for_function('document.querySelector(".material-summary")?.textContent.includes("冷静的记者")')
-            page.locator('[data-history]').first.click()
+            current=server.read();asset=asset_library.assets(current)[0]
+            server.material_service().mutate(current['project_id'],current['revision'],'design',{'asset_id':asset['id'],'profile':handoff(root,'character')})
+            page.reload();page.locator('[data-history]').first.wait_for();page.locator('[data-history]').first.click()
             with page.expect_response('**/api/assets/adopt'):
-                page.get_by_role('button',name='人工采用 v2',exact=True).click()
+                page.get_by_role('button',name='人工采用 v3',exact=True).click()
             assert server.read()['characters'][0]['notes']=='冷静的记者，短发，习惯先观察再行动。'
             page.get_by_role('link',name='06 工具与设置',exact=True).click()
             page.locator('#provider-choice').wait_for()

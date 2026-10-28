@@ -17,6 +17,7 @@ import subprocess
 import threading
 import uuid
 import zlib
+import asset_templates
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -368,7 +369,25 @@ class AssetLibrary:
         return result
 
     def _public(self, state):
-        return {'project_id': state['project_id'], 'revision': state['revision'], 'assets': assets(state),
+        public_assets=assets(state)
+        for asset in public_assets:
+            version=_version(asset)
+            asset['design_summary']=asset_templates.public_design(asset_templates.blueprint(state,asset,version))
+            for candidate in asset['versions']:
+                candidate['design_summary']=asset_templates.public_design(asset_templates.blueprint(state,asset,candidate))
+                candidate['production_status']=asset_templates.review_status(state,asset,candidate)
+                if candidate['design_summary']['ready']:
+                    try:asset_templates.verify_skill_source(self.root,candidate.get('design_profile',{}),asset['kind'])
+                    except ValueError:
+                        candidate['design_summary'].update(ready=False,status='制作助手需按最新Skill重新交接设计')
+                        candidate['production_status']=asset_templates.not_reviewed('Skill来源已变化或不可用')
+            asset['design_summary']=version['design_summary']
+            profile=asset_templates.normalize_profile(version.get('design_profile',{}),asset['kind'])
+            asset['master_plan']=profile['master_plan']
+            asset['available_view_tags']=list(profile['view_recipes'])
+            asset['production_status']=_version(asset,asset['adopted_version'])['production_status'] if asset.get('adopted_version') else asset_templates.not_reviewed('设计与母版待审阅')
+            asset['adopted_design_matches_latest']=bool(asset.get('adopted_version') and asset_templates.blueprint(state,asset,_version(asset,asset['adopted_version']))['design_hash']==asset_templates.blueprint(state,asset,version)['design_hash'])
+        return {'project_id': state['project_id'], 'revision': state['revision'], 'assets': public_assets,
             'sources': self._sources(state), 'view_labels': VIEWS,
             'shots': [{'id': s['id'], 'name': s['name'], 'asset_references': s.get('asset_references', [])} for s in state.get('shots', [])],
             'limits': {'max_bytes': MAX_BYTES, 'max_side': MAX_SIDE, 'max_pixels': MAX_PIXELS}, 'generation_enabled': False}
@@ -473,7 +492,16 @@ class AssetLibrary:
             self._bind(state, action, payload)
             return
         asset = self._asset(state, payload.get('asset_id'))
-        if action == 'edit':
+        if action == 'design':
+            profile=asset_templates.normalize_profile(payload.get('profile'),asset['kind'])
+            current=_version(asset)
+            basis=asset_templates.design_input_hash(state,asset,current)
+            if profile.get('input_basis_hash') and profile['input_basis_hash']!=basis:raise ValueError('创作输入已变化，请重新交接设计')
+            profile['input_basis_hash']=basis
+            if profile!=current.get('design_profile'):
+                version=copy.deepcopy(current);version.update(design_profile=profile,views=[],origin='system_design_draft')
+                _append(asset,version)
+        elif action == 'edit':
             current = _version(asset); version = copy.deepcopy(current)
             for field, limit, required in [('name',80,True), ('summary',4000,False), ('role',160,False), ('variant',160,False)]:
                 if field in payload:
@@ -508,7 +536,8 @@ class AssetLibrary:
             view = {'id': image_id, 'tag': tag, 'label': VIEWS[asset['kind']][tag],
                 'url': f"/asset-media/{state['project_id']}/{image_id}.{info['extension']}", 'imported_at': _now(), 'origin': origin, **info}
             version = copy.deepcopy(_version(asset))
-            if tag == ('portrait' if asset['kind']=='character' else 'main'):
+            identity=asset_templates.normalize_profile(version.get('design_profile',{}),asset['kind'])['master_plan'].get('identity_tag','portrait' if asset['kind']=='character' else 'main')
+            if tag == identity:
                 version['views']=[]
             version['views'] = [v for v in version.get('views', []) if v['tag'] != tag] + [view]
             version['origin'] = 'image_import'; _append(asset, version)
@@ -517,9 +546,13 @@ class AssetLibrary:
             if type(number) is not int:
                 raise ValueError('请明确选择采用的版本')
             version = _version(asset, number)
+            asset_templates.verify_skill_source(self.root,version.get('design_profile',{}),asset['kind'])
             for view in version.get('views', []):
                 self._checked_view(state['project_id'], view)
             asset['adopted_version'] = number
+            review=asset_templates.review_record(state,asset,version)
+            review['reviewed_at']=_now()
+            asset.setdefault('production_reviews',[]).append(review)
             asset.setdefault('adoption_history', []).append({'version': number, 'adopted': True, 'at': _now()})
             self._sync_character(state, asset, version)
         elif action == 'unadopt':
@@ -548,6 +581,8 @@ class AssetLibrary:
             if type(number) is not int or asset.get('adopted_version') != number:
                 raise ValueError('只能选择人工采用的明确素材版本')
             version = _version(asset, number); ids = payload.get('view_ids')
+            asset_templates.verify_skill_source(self.root,version.get('design_profile',{}),asset['kind'])
+            status=asset_templates.review_status(state,asset,version)
             if not isinstance(ids, list) or not ids or len(ids) > 10 or any(not isinstance(i, str) for i in ids) or len(ids) != len(set(ids)):
                 raise ValueError('请选择1–10张独立视图')
             views = []
@@ -555,9 +590,17 @@ class AssetLibrary:
                 view = next((v for v in version.get('views', []) if v['id'] == image_id), None)
                 if view is None:
                     raise ValueError('图片不属于选定的素材版本')
+                if view['tag'] not in status['ref_eligible_tags']:
+                    raise ValueError('素材设计或制作规范已更新，请按当前规范重新审阅后选择')
+                required=asset_templates.recipe(asset['kind'],view['tag'],view.get('origin',{}).get('model','qwen-image-3.0-pro'),version.get('design_profile'))['template']['requires']
+                if asset['kind']=='character' and required and not status['identity_reviewed']:
+                    raise ValueError('角色身份母版尚未按当前规范审阅')
+                if 'body' in required and not status['body_reviewed']:
+                    raise ValueError('全身正面母版尚未按当前规范审阅')
                 self._checked_view(state['project_id'], view); views.append(copy.deepcopy(view))
             refs.append({'asset_id': asset['id'], 'kind': asset['kind'], 'version': number,
-                'name': version['name'], 'variant': version.get('variant', ''), 'views': views})
+                'name': version['name'], 'variant': version.get('variant', ''), 'views': views,
+                'production_review':asset_templates.review_record(state,asset,version)})
         if sum(len(ref.get('views',[])) for ref in refs)>3:raise ValueError('本镜最多选择3张素材参考，请只选关键视图')
         if refs != old:
             shot['asset_references'] = refs

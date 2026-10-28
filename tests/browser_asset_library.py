@@ -19,6 +19,7 @@ from test_asset_library import AssetFixture,png
 from playwright.sync_api import sync_playwright
 
 fixture=AssetFixture();fixture.setUp();root=fixture.root
+fixture.install_profile(fixture.service.catalog(1)['assets'][0]['id'])
 shutil.copytree(server.ROOT/'static',root/'static')
 provider=image_provider.ImageProvider();provider.headers=Mock(return_value={});provider.submit=Mock(return_value='material-mock-task')
 provider.status=Mock(return_value={'status':'completed','image_urls':['https://example.aliyuncs.com/material.png'],'usage':{},'actual_cost_cny':None})
@@ -49,6 +50,7 @@ try:
   page.get_by_role('button',name='加入素材清单',exact=True).click();page.wait_for_function('document.querySelectorAll(".material-card").length===2')
   page.get_by_role('button',name='物品',exact=True).click();page.locator('.material-card').wait_for();assert page.locator('.material-card').count()==1
   assert '钥匙' in page.locator('.material-card').inner_text();assert fixture.state()['shots'][0]['approved']
+  fixture.install_profile(fixture.service.catalog(1)['assets'][-1]['id'])
   # Explicitly resume ONLY the mock fixture to exercise the real adapter orchestration.
   scope=generation_scope.read();scope['1']['paused']=False;generation_scope.path().write_text(json.dumps(scope));page.reload()
   page.locator('.material-card').first.wait_for();page.get_by_role('button',name='物品',exact=True).click()
