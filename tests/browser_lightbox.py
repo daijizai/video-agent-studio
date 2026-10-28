@@ -20,14 +20,14 @@ with tempfile.TemporaryDirectory() as tmp:
   with sync_playwright() as p:
    b=p.chromium.launch();page=b.new_page(viewport={'width':1440,'height':1000});errors=[];calls=[];page.on('pageerror',lambda e:errors.append(str(e)));page.on('request',lambda r:calls.append(r.url) if '/submit' in r.url else None)
    page.clock.install()
-   page.goto('http://127.0.0.1:'+str(http.server_port)+'/#shots');opener=page.locator('[data-shot-lightbox]').first;opener.wait_for();page.locator('.shot-details').first.locator('summary').first.click();page.locator('#ip0').fill('Unsaved details retained')
+   page.goto('http://127.0.0.1:'+str(http.server_port)+'/#shots');opener=page.locator('[data-shot-lightbox]').first;opener.wait_for();page.locator('.shot-details').first.locator('summary').first.click();page.locator('#intent0').fill('Unsaved details retained')
    opener.click();dialog=page.get_by_role('dialog');dialog.wait_for();page.wait_for_function('document.querySelector(".image-lightbox img").naturalWidth===1200');assert '当前图' in page.locator('#lightbox-identity').inner_text();assert page.locator('.image-lightbox img').get_attribute('src')=='/media/1/current.png'
    page.locator('#lightbox-original').click();assert page.locator('.image-lightbox img').evaluate('(i)=>Math.round(i.getBoundingClientRect().width)')==1200
    page.locator('#lightbox-fit').click();page.locator('#lightbox-in').click();assert page.locator('#lightbox-scale').inner_text()=='125%'
    page.locator('.lightbox-viewer').hover();page.mouse.wheel(0,-100);assert int(page.locator('#lightbox-scale').inner_text().rstrip('%'))>125
    page.locator('#lightbox-previous').click();assert '历史图' in page.locator('#lightbox-identity').inner_text();assert page.locator('.image-lightbox img').get_attribute('src')=='/media/1/old.png'
    page.locator('#lightbox-next').click();assert '当前图' in page.locator('#lightbox-identity').inner_text();page.keyboard.press('Escape');assert page.get_by_role('dialog').count()==0
-   assert page.locator('#ip0').input_value()=='Unsaved details retained';assert page.locator('.shot-details').first.evaluate('(e)=>e.open');assert page.evaluate('document.activeElement.dataset.shotLightbox')==first['id']
+   assert page.locator('#intent0').input_value()=='Unsaved details retained';assert page.locator('.shot-details').first.evaluate('(e)=>e.open');assert page.evaluate('document.activeElement.dataset.shotLightbox')==first['id']
    opener.click();page.locator('#lightbox-choice').select_option('2');assert page.locator('.image-lightbox img').get_attribute('src')=='/media/1/second.png';page.locator('#lightbox-close').click();assert page.get_by_role('dialog').count()==0
    opener.click();page.mouse.click(1,1);assert page.get_by_role('dialog').count()==0
    page.set_viewport_size({'width':375,'height':812});opener.click();page.wait_for_function('document.querySelector(".image-lightbox img").naturalWidth===1200');assert page.locator('.image-lightbox').evaluate('(e)=>e.getBoundingClientRect().width<=innerWidth');assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')

@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory() as tmp:
             browser=p.chromium.launch();page=browser.new_page(viewport={'width':1440,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
             page.goto('http://127.0.0.1:'+str(http.server_port));page.get_by_role('button',name='＋ 新建项目',exact=True).wait_for()
             page.get_by_role('button',name='＋ 新建项目',exact=True).click();page.get_by_label('项目名称',exact=True).fill('隔离验证项目');page.get_by_role('button',name='创建项目',exact=True).click()
-            page.get_by_role('link',name='02 剧本与连续性').click();page.get_by_label('剧本正文',exact=True).fill('Only belongs to project B');page.get_by_role('button',name='保存剧本',exact=True).click();page.get_by_role('status').filter(has_text='已保存').wait_for()
+            page.get_by_role('link',name='02 剧本').click();page.get_by_label('剧本正文',exact=True).fill('Only belongs to project B');page.get_by_role('button',name='保存剧本',exact=True).click();page.get_by_role('status').filter(has_text='已保存').wait_for()
             page.reload();page.get_by_role('combobox',name='选择项目').wait_for();assert '隔离验证项目' in page.locator('#project-select option:checked').inner_text()
             assert page.get_by_label('剧本正文',exact=True).input_value()=='Only belongs to project B'
             page.get_by_role('combobox',name='选择项目').select_option('1');page.get_by_label('剧本正文',exact=True).wait_for();page.wait_for_function("document.querySelector('#script').value.includes('雨夜')")
@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory() as tmp:
             page.get_by_role('button',name='安全保存到仓库外',exact=True).click();page.get_by_text('已配置 · 本项目未调用',exact=True).first.wait_for()
             assert page.locator('#provider-key').input_value()==''
             assert 'fake-browser-test-key-never-real' not in page.content()
-            page.get_by_role('link',name='04 分镜工作台').click();page.get_by_role('button',name='预览请求与估价',exact=True).click();page.wait_for_function('document.querySelector("#provider-result").textContent.includes("wan3.0-video-prime")')
+            page.get_by_role('link',name='进入开发者诊断',exact=True).click();page.get_by_role('button',name='预览请求与估价',exact=True).click();page.wait_for_function('document.querySelector("#provider-result").textContent.includes("wan3.0-video-prime")')
             assert 'wan3.0-video' in page.locator('#provider-result').inner_text()
             assert not page.get_by_role('button',name='提交供应商 · 视频未授权').is_enabled()
             for name in ['视频制作与预览','角色资产库','制作总览']:

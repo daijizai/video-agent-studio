@@ -1,0 +1,14 @@
+.storyboard-assist{margin-top:18px;border:1px solid var(--line);border-radius:7px;padding:12px;min-width:0}
+.storyboard-assist summary{cursor:pointer;min-height:44px;align-content:center;color:var(--accent)}
+.storyboard-assist fieldset{min-width:0;border:1px solid var(--line);border-radius:6px;margin:16px 0;padding:12px}
+.storyboard-assist legend{color:var(--text);font-size:13px;padding:0 6px}
+.storyboard-assist label{display:block;color:var(--muted);font-size:12px;margin:10px 0 5px}
+.storyboard-assist input,.storyboard-assist select{min-height:44px;min-width:0}
+.storyboard-assist textarea{min-height:76px}
+.storyboard-assist .assist-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px}
+.storyboard-assist .assist-note,.storyboard-assist .assist-report{overflow-wrap:anywhere}
+.storyboard-assist .assist-report ol{padding-left:22px}
+.storyboard-assist .assist-report li{margin:12px 0}
+.storyboard-assist .assist-report p{font-size:13px}
+.storyboard-assist .assist-report a{display:inline-block;min-height:44px;padding:8px 0}
+@media(max-width:700px){.storyboard-assist .assist-grid{grid-template-columns:1fr}}

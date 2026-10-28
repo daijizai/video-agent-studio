@@ -20,15 +20,15 @@ with tempfile.TemporaryDirectory() as tmp:
    assert not page.locator('.shot-details').first.evaluate('(e)=>e.open')
    page.locator('[data-image-generate="0"]').click();page.get_by_text('正在提交 · 请勿重复',exact=True).wait_for();release.set()
    page.locator('[data-image-art="0"]').get_by_text('已提交 · 排队中',exact=True).wait_for()
-   page.locator('.shot-details').first.locator('summary').first.click();page.locator('#ip0').fill('Unsaved static composition survives polling')
+   page.locator('.shot-details').first.locator('summary').first.click();page.locator('#intent0').fill('Unsaved static composition survives polling')
    page.clock.fast_forward(1000);page.get_by_text('查询暂失败，将退避重查原任务',exact=True).wait_for();assert query.call_count==1
    page.clock.fast_forward(16000);page.locator('[data-image-art="0"]').get_by_text('生成中',exact=True).wait_for();assert query.call_count==2
    page.clock.fast_forward(8000);page.locator('[data-image-art="0"] img').wait_for();assert query.call_count==3
    page.wait_for_function("document.querySelector('[data-image-art=\"0\"] img').naturalWidth > 0")
-   assert page.locator('.shot-details').first.evaluate('(e)=>e.open');assert page.locator('#ip0').input_value()=='Unsaved static composition survives polling'
+   assert page.locator('.shot-details').first.evaluate('(e)=>e.open');assert page.locator('#intent0').input_value()=='Unsaved static composition survives polling'
    page.clock.fast_forward(60000);assert query.call_count==3
-   page.locator('[data-shot-save="0"]').click();page.get_by_role('status').filter(has_text='已保存').wait_for();assert server.read()['shots'][0]['image_prompt']=='Unsaved static composition survives polling'
-   page.get_by_role('link',name='05 视频制作与预览').click();page.locator('.auxiliary-log > summary').click();page.locator('[data-execution-task]').wait_for();assert page.locator('[data-execution-task]').count()==1;assert '千问AI图片API' in page.locator('#execution-ledger').inner_text();assert '先连接ComfyUI' not in page.locator('#execution-ledger').inner_text()
+   page.locator('[data-shot-save="0"]').click();page.get_by_role('status').filter(has_text='已保存').wait_for();assert server.read()['shots'][0]['story_intent']=='Unsaved static composition survives polling'
+   page.get_by_role('link',name='06 工具与设置').click();page.get_by_role('link',name='进入开发者诊断',exact=True).click();page.locator('[data-execution-task]').wait_for();assert page.locator('[data-execution-task]').count()==1;assert '千问AI图片API' in page.locator('#execution-ledger').inner_text();assert '先连接ComfyUI' not in page.locator('#execution-ledger').inner_text()
    page.get_by_role('link',name='04 分镜工作台').click()
    s=server.read();s['image_tasks'][0]['status']='failed';s['shots'][0]['image_status']='failed';s['shots'][0].pop('storyboard_local',None);s['shots'][0].pop('storyboard_image',None);server.save(s)
    page.reload();page.locator('[data-image-art="0"]').get_by_text('生成失败',exact=True).wait_for();page.clock.fast_forward(60000);assert query.call_count==3

@@ -1,5 +1,5 @@
 async function renderProviders(page) {
-  if (!['tools', 'shots'].includes(page)) return;
+  if (!['tools', 'diagnostics'].includes(page)) return;
   const panel = document.createElement('section');
   panel.className = 'panel provider-panel';
   if (page === 'tools') {

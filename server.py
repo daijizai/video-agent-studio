@@ -5,6 +5,7 @@ import image_provider
 import generation_scope
 import media_files
 import workflow_state
+import storyboard_contract
 import re
 import copy
 from datetime import datetime,timezone
@@ -171,6 +172,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if 'project_id' in p and int(p['project_id'])!=s['project_id']:raise ValueError('当前项目已切换，请刷新页面后再保存')
                 if 'revision' in p and int(p['revision'])!=s['revision']:raise ValueError('项目已被其他窗口或CLI修改，请刷新后重试')
                 if action=='/api/save':
+                    previous_shots=copy.deepcopy(s['shots'])
                     for key in ['title','episode','script','continuity','characters','shots','budget','target_duration','production_demo','sequence_prompt','authorization_note','source_manifest','project_brief','quality_lessons','final_video','budget_authorizations']:
                         if key in p:s[key]=p[key]
                     if not 1<=float(s.get('target_duration',120))<=300:raise ValueError('项目目标时长须为1–300秒')
@@ -178,6 +180,8 @@ class Handler(SimpleHTTPRequestHandler):
                     if any(not 0<=float(x['estimate'])<=100000 for x in s['shots']):raise ValueError('估价必须为 0–100000')
                     if any(not 1<=float(x['duration'])<=300 for x in s['shots']):raise ValueError('镜头时长须为 1–300 秒')
                     if sum(float(x['duration']) for x in s['shots'])>300:raise ValueError('单集总时长不可超过 5 分钟')
+                    storyboard_contract.validate_shots(s['shots'])
+                    storyboard_contract.invalidate_changed(previous_shots,s['shots'])
                 elif action=='/api/approvals/shot':
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
                     if p.get('approved',True):

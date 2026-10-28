@@ -27,10 +27,10 @@ with tempfile.TemporaryDirectory() as tmp:
    page.get_by_role('button',name='保存供应商配置',exact=True).click();page.wait_for_function("document.querySelector('#provider-choice')?.value==='seedance25'")
    page.reload();page.locator('#provider-choice').wait_for();assert page.locator('#provider-choice').input_value()=='seedance25';assert page.locator('#image-default-model').input_value()==ark_provider.IMAGE_MODEL
    assert generation_scope.is_paused(1,server.DATA/'studio.db')
-   page.get_by_role('link',name='04 分镜工作台',exact=True).click();page.locator('[data-image-preview]').first.click();page.wait_for_function("document.querySelector('[data-image-result]')?.textContent.includes('doubao-seedream-5-0-flash-260915')")
+   page.get_by_role('link',name='进入开发者诊断',exact=True).click();page.locator('[data-image-preview]').first.click();page.wait_for_function("document.querySelector('[data-image-result]')?.textContent.includes('doubao-seedream-5-0-flash-260915')")
    assert page.locator('[data-image-generate]').first.is_disabled();submit.assert_not_called()
    # Resume only this artificial fixture, never the real project.
-   scope=generation_scope.read();scope['1']['paused']=False;generation_scope.path().write_text(json.dumps(scope));page.reload();page.locator('[data-image-generate]').first.wait_for();page.locator('[data-image-generate]').first.click()
+   scope=generation_scope.read();scope['1']['paused']=False;generation_scope.path().write_text(json.dumps(scope));page.get_by_role('link',name='04 分镜工作台',exact=True).click();page.reload();page.locator('[data-image-generate]').first.wait_for();page.locator('[data-image-generate]').first.click()
    page.wait_for_function("document.querySelector('[data-image-art] img')!==null")
    assert submit.call_count==1;assert '图片已保存' in page.locator('[data-image-poll]').first.inner_text();assert page.locator('[data-image-poll]').first.is_disabled()
    assert not server.read()['shots'][0]['approved'];assert server.read()['image_tasks'][-1]['provider']=='seedream'

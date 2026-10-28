@@ -1,22 +1,24 @@
 """Pure project-stage derivation from persisted content, approvals and real tasks."""
 import hashlib,json
+import storyboard_contract
 
 def approval_hash(state,shot):
  content={k:shot.get(k) for k in ('id','name','duration','frame','prompt','image_prompt','storyboard_task_id','storyboard_local','storyboard_sha256')}
+ if 'story_intent' in shot:content['story_intent']=shot['story_intent']
  context={k:state.get(k) for k in ('script','characters','continuity')}
  return hashlib.sha256(json.dumps({'shot':content,'context':context},ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 def valid_approval(state,shot):
  record=shot.get('approval_snapshot') or {}
- return bool(shot.get('approved') and shot.get('storyboard_task_id') and shot.get('storyboard_local') and shot.get('approved_image_task_id')==shot.get('storyboard_task_id')==record.get('image_task_id') and record.get('content_hash')==approval_hash(state,shot))
+ return bool(shot.get('approved') and shot.get('storyboard_task_id') and shot.get('storyboard_local') and shot.get('approved_image_task_id')==shot.get('storyboard_task_id')==record.get('image_task_id') and record.get('content_hash')==approval_hash(state,shot) and storyboard_contract.matches(record,shot))
 def task_matches(state,task):
  records=task.get('approval_snapshot')
  if isinstance(records,list):
   current={s['id']:s for s in state.get('shots',[])}
   by_image={s.get('storyboard_task_id'):s for s in current.values()}
-  return bool(len(records)==len(current) and records and all(r.get('image_task_id') in by_image and r.get('content_hash')==approval_hash(state,by_image[r['image_task_id']]) for r in records))
+  return bool(len(records)==len(current) and records and all(r.get('image_task_id') in by_image and r.get('content_hash')==approval_hash(state,by_image[r['image_task_id']]) and storyboard_contract.matches(r,by_image[r['image_task_id']]) for r in records))
  shot=next((s for s in state.get('shots',[]) if s['id']==task.get('shot_id')),None)
  old=task.get('content_snapshot',{}).get('shot',{}).get('approval_snapshot',{})
- return bool(shot and valid_approval(state,shot) and old.get('content_hash')==approval_hash(state,shot))
+ return bool(shot and valid_approval(state,shot) and old.get('content_hash')==approval_hash(state,shot) and storyboard_contract.matches(old,shot))
 def derive(state):
  shots=state.get('shots',[]);approved=[s['id'] for s in shots if valid_approval(state,s)]
  prepared=bool(str(state.get('script','')).strip() and state.get('characters') and shots)
@@ -39,4 +41,4 @@ def derive(state):
 
 def record_approval(state,shot,source,recorded_at):
  if not shot.get('storyboard_task_id') or not shot.get('storyboard_local') or not shot.get('storyboard_sha256'):raise ValueError('必须审阅当前本机图片后才能批准图片版本')
- return {'source':source,'recorded_at':recorded_at,'content_revision':state['revision'],'image_task_id':shot['storyboard_task_id'],'image_sha256':shot['storyboard_sha256'],'content_hash':approval_hash(state,shot)}
+ return {'source':source,'recorded_at':recorded_at,'content_revision':state['revision'],'image_task_id':shot['storyboard_task_id'],'image_sha256':shot['storyboard_sha256'],'content_hash':approval_hash(state,shot),**storyboard_contract.record_binding(shot)}
