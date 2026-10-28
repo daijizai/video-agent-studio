@@ -33,7 +33,7 @@ def init():
             c.execute('INSERT INTO state VALUES (1,?)',(json.dumps(s,ensure_ascii=False),))
 def cache_image(project_id,task_id,url):
     parsed=urllib.parse.urlparse(url)
-    if parsed.scheme!='https' or not parsed.hostname or not any(parsed.hostname.endswith('.'+d) for d in ('aliyuncs.com','alicdn.com','qianwenaiapi.com')):raise ValueError('不支持的模型图片下载域名')
+    if parsed.scheme!='https' or parsed.username or parsed.password or not parsed.hostname or not any(parsed.hostname.endswith('.'+d) for d in ('aliyuncs.com','alicdn.com','qianwenaiapi.com','volces.com','byteimg.com')):raise ValueError('不支持的模型图片下载域名')
     path=ROOT/'assets'/str(project_id)/(task_id+'.png');path.parent.mkdir(parents=True,exist_ok=True)
     if not path.exists():
         class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -41,8 +41,28 @@ def cache_image(project_id,task_id,url):
         with urllib.request.build_opener(NoRedirect).open(url,timeout=30) as r:
             data=r.read(20*1024*1024+1)
             if len(data)>20*1024*1024 or not data.startswith((b'\x89PNG',b'\xff\xd8',b'RIFF')):raise ValueError('输出不是支持的图片或超过20MB')
-        path.write_bytes(data)
+        temp=path.with_suffix('.part')
+        try:temp.write_bytes(data);temp.replace(path)
+        finally:
+            if temp.exists():temp.unlink()
     return '/media/'+str(project_id)+'/'+task_id+'.png'
+def cache_sync_image(s,task):
+    """Recover a durable sync result without submitting again or overwriting newer art."""
+    shot=next(x for x in s['shots'] if x['id']==task['shot_id'])
+    latest=next((t for t in reversed(s['image_tasks']) if t['shot_id']==shot['id'] and t['status']!='rejected'),None)
+    is_current=latest is not None and latest['id']==task['id']
+    frozen=workflow_state.valid_approval(s,shot) and task['id']!=shot.get('approved_image_task_id')
+    local=None
+    try:
+        local=cache_image(s['project_id'],task['id'],task['image_urls'][0]);task['local_artifact']=local;task.pop('download_error',None)
+    except Exception:task['download_error']='图片已完成，本地缓存未完成；保留原结果，仅重试下载，不重新生成'
+    if is_current and frozen:
+        shot['pending_storyboard']={'task_id':task['id'],'local_artifact':local,'note':'已批准图冻结，新到候选不得静默替换或继承审批'}
+    elif is_current:
+        if shot.get('storyboard_task_id')!=task['id']:
+            shot['approved']=False;shot['image_quality']='unreviewed';shot.pop('storyboard_local',None)
+        shot['storyboard_task_id']=task['id'];shot['storyboard_image']=task['image_urls'][0];shot['image_status']='completed'
+        if local:shot['storyboard_local']=local
 def current_project():
     with db() as c:return c.execute('SELECT current_project FROM workspace WHERE id=1').fetchone()[0]
 def read(project_id=None):
@@ -169,10 +189,13 @@ class Handler(SimpleHTTPRequestHandler):
                         shot['storyboard_sha256']=__import__('hashlib').sha256(asset.read_bytes()).hexdigest()
                         shot['approval_snapshot']=workflow_state.record_approval(s,shot,secret_store.redact(str(p.get('source','用户明确审阅当前分镜图片与内容'))[:500]),datetime.now(timezone.utc).isoformat())
                         shot['approved_image_task_id']=shot['storyboard_task_id'];shot['approved']=True;shot['image_quality']='approved'
+                        if s['settings'].get('provider')=='seedance25':
+                            import ark_provider
+                            shot['ark_reference_approval']=ark_provider.reference_binding(shot)
                     else:shot['approved']=False;shot['image_quality']='unreviewed'
                 elif action=='/api/budgets/authorize':
                     source=str(p.get('source','local user confirmation'))[:500]
-                    record=generation_scope.authorize_budgets(s['project_id'],DATA/'studio.db',p.get('image_limit'),p.get('video_limit'),source,s['revision'])
+                    record=generation_scope.authorize_budgets(s['project_id'],DATA/'studio.db',p.get('image_limit'),p.get('video_limit'),source,s['revision'],models=p.get('models'))
                     s['budget_authorizations']=generation_scope.read()[str(s['project_id'])]['budget_authorization_history']
                 elif action=='/api/settings':
                     s['settings']={**s['settings'], **{k:p[k] for k in ('comfy_url','workflow','provider','resolution','audio','ratio','image_model') if k in p}}
@@ -182,7 +205,7 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.reply({'saved':True,'credential_present':True,'connection':'unverified'})
                 elif action=='/api/image/prepare':
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
-                    return self.reply(image_provider.ImageProvider().prepare(shot,s['settings']))
+                    return self.reply(image_provider.for_model(shot.get('image_model') or s['settings'].get('image_model')).prepare(shot,s['settings']))
                 elif action=='/api/image/submit':
                     if not generation_scope.active(s['project_id'],DATA/'studio.db'):raise ValueError('当前项目无图像生成授权')
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
@@ -192,8 +215,9 @@ class Handler(SimpleHTTPRequestHandler):
                     previous=[t for t in s['image_tasks'] if t['shot_id']==shot['id']]
                     if any(t['status'] in ('submitting','unknown','queued','running') for t in previous):raise ValueError('已有图像任务，查询原任务，禁止重复提交')
                     if previous and not p.get('redo'):raise ValueError('重生成须明确指定redo；历史图像保留')
-                    provider=image_provider.ImageProvider();prepared=provider.prepare(shot,s['settings']);provider.headers()
+                    provider=image_provider.for_model(shot.get('image_model') or s['settings'].get('image_model'));prepared=provider.prepare(shot,s['settings']);provider.headers()
                     task={'id':str(uuid.uuid4()),'submitted_at':datetime.now(timezone.utc).isoformat(),'submitted_epoch':time.time(),'shot_id':shot['id'],'name':shot['name'],'provider_task_id':None,'status':'submitting','estimate':prepared['estimated_cny'],'request':prepared['payload']}
+                    task['provider']=prepared['provider']
                     task['content_revision']=s['revision'];task['content_snapshot']=content_snapshot(s,shot)
                     task['authorization_id']=generation_scope.check(s,DATA/'studio.db','image',task['estimate'],prepared['payload']['model'],shot_id=shot['id'])
                     task['authorization_scope_snapshot']=copy.deepcopy(generation_scope.read()[str(s['project_id'])])
@@ -202,9 +226,16 @@ class Handler(SimpleHTTPRequestHandler):
                         shot.setdefault('image_review_history',[]).append({'image_task_id':shot.get('storyboard_task_id',old.get('id')),'quality':shot.get('image_quality'),'user_feedback':shot.get('user_feedback'),'review':shot.get('review')})
                     shot.pop('user_feedback',None);shot['review']='本次新图尚未审阅；历史反馈绑定旧图保留。';shot['image_quality']='generating';shot['current_image_task_id']=task['id']
                     s['image_tasks'].append(task);shot['approved']=False;save(s)
-                    try:task['provider_task_id']=provider.submit(prepared,authorized=True);task['status']='queued'
+                    try:
+                        result=provider.submit(prepared,authorized=True)
+                        if isinstance(result,dict):
+                            task.update(result)
+                            # Synchronous Ark response is durable before attempting downloads.
+                            save(s)
+                            cache_sync_image(s,task)
+                        else:task['provider_task_id']=result;task['status']='queued'
                     except Exception as error:task['status']='unknown';task['error']=str(error);task['error_details']=getattr(error,'details',{});save(s);raise ValueError('图像提交结果已记录：'+str(error))
-                    shot['image_status']='queued'
+                    shot['image_status']=task['status']
                 elif action=='/api/image/reconcile-rate-limit':
                     task=next(t for t in s['image_tasks'] if t['id']==p['task_id'])
                     if task.get('provider_task_id') or 'HTTP 429 / Throttling.RateQuota' not in task.get('error',''):raise ValueError('仅可核对明确429且未取得任务编号的拒绝请求')
@@ -214,6 +245,12 @@ class Handler(SimpleHTTPRequestHandler):
                     next(x for x in s['shots'] if x['id']==task['shot_id'])['image_status']='rejected'
                 elif action=='/api/image/poll':
                     task=next(t for t in s['image_tasks'] if t['id']==p['task_id'])
+                    if task.get('provider')=='seedream':
+                        if task.get('status')!='completed':raise ValueError('方舟同步图像请求结果待核对；没有异步任务可查询，禁止重提')
+                        # Retry only local caching; no supplier generation/status call exists for sync images.
+                        task['last_checked_at']=datetime.now(timezone.utc).isoformat()
+                        cache_sync_image(s,task)
+                        save(s);return self.reply(read())
                     if not task['provider_task_id']:raise ValueError('缺少图像任务ID，请人工核对')
                     task['last_checked_at']=datetime.now(timezone.utc).isoformat()
                     try:
@@ -246,6 +283,9 @@ class Handler(SimpleHTTPRequestHandler):
                     if any(t['status'] in ('submitting','queued','running','unknown') for t in previous):raise ValueError('该镜头有在途或未知任务，禁止重复提交')
                     if previous and not p.get('redo'):raise ValueError('已有终态任务；语义上需要重做时明确指定redo，仍检查本类别预算')
                     provider=providers.Provider(s['settings'].get('provider','wan3-prime'))
+                    if provider.id=='seedance25':
+                        import ark_provider
+                        ark_provider.require_reference_approval(shot)
                     prepared=provider.prepare(shot,s['settings'])
                     estimate=max(float(shot['estimate']),prepared['estimated_cny'])
                     provider.headers();provider.base_url() # Validate credentials/config before durable submission intent.

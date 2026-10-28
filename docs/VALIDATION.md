@@ -1,5 +1,13 @@
 # Validation / 2026-10-28
 
+## Ark adapter iteration
+
+- 59 unit/HTTP tests passed, including 12 new Ark contract and persistence cases. New tests use fake credentials, temporary SQLite/assets and mock provider responses; no real Ark inference was submitted.
+- `tests/browser_ark.py` passed: both new model choices persist; changing models does not resume a paused fixture; offline request preview works; synchronous image results appear without false quality approval; project isolation and 375/768/1440 layouts pass.
+- Local port 8766 restarted and read-only checked: the existing project remains paused, new image/video execution is disabled, prior Qwen/Wan defaults remain, the accepted first-version film is preserved and its local MP4 serves HTTP 206 range playback.
+- Seedance reference approvals use a versioned request binding; changed actual reference URLs require renewed approval for a new Ark request. Existing Wan approval hashes and film history are not rewritten.
+- See `ARK_INTEGRATION.md` for pinned models, supported subset, reservation basis and real-generation validation limits.
+
 - 47 automated tests passed: CLI workflows, project isolation, approval/budget gates, duplicate/timeout protection, optimistic revisions, official video/image payloads, static-frame prompt warnings, fixed project/database-bound generation scopes, credential isolation/redaction and task snapshots, named-shot finite extensions, and historical-image queries preserving the current image/approval.
 - Browser polling integration passed with temporary SQLite/private storage and mock provider: immediate submitting/queued state; query failure and backoff; running/completed with a valid test image; no further provider queries at terminal/failed/no-ID unknown; independent collapsed details; unsaved edits preserved through polling and saved correctly; switching projects isolated; responsive375/768/1440.
 - Browser workspace integration covers project create/edit/switch/reload, write-only fake-key UI, zero-network Wan3 preview and disabled video submission.

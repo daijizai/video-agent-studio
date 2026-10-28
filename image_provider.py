@@ -4,6 +4,11 @@ import re, urllib.parse
 import providers, secret_store
 DEFAULT_IMAGE_MODEL='qwen-image-3.0-pro'
 STATIC_FRAME_PREFIX='单张独立画面：只描绘一个静态瞬间、一个构图。不画分格、拼贴、分屏、三联画或接触印样。不将时间顺序展开成多个画面。'
+def for_model(model=None):
+    if model=='doubao-seedream-5-0-flash-260915':
+        from ark_provider import SeedreamProvider
+        return SeedreamProvider()
+    return ImageProvider()
 def prompt_warnings(prompt):
     warnings=[]
     if re.search(r'\b[0-9]{2}:[0-9]{2}|随后|然后|先.{0,30}再|第[一二三四五六123456]个?镜头',prompt):warnings.append('检测到可能的时序/多镜信息；图片应改写为单一静态瞬间，视频动作和对白留在视频提示中')

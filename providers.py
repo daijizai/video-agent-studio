@@ -9,6 +9,7 @@ import urllib.parse
 from decimal import Decimal, ROUND_UP
 
 CATALOG = {
+    'seedance25': {'label':'火山方舟 Seedance 2.5','model':'doubao-seedance-2-5-260628','key_env':'ARK_API_KEY','reference_limit':30},
     'wan3-prime': {'label':'千问AI Wan3.0-Video-Prime · 默认','model':'wan3.0-video-prime','key_env':'WAN3_API_KEY','reference_limit':10},
     'wan3': {'label':'千问AI Wan3.0-Video · 主用','model':'wan3.0-video','key_env':'WAN3_API_KEY','reference_limit':10},
     'wan': {'label': '阿里 Wan 2.6 R2V Flash', 'model': 'wan2.6-r2v-flash', 'key_env': 'DASHSCOPE_API_KEY', 'reference_limit': 5},
@@ -63,7 +64,7 @@ class Provider:
     def base_url(self):
         if self.id in ('wan3','wan3-prime'):
             return 'https://cn-beijing.maas.qianwenaiapi.com/api/v1'
-        if self.id == 'seedance': return 'https://ark.cn-beijing.volces.com/api/v3'
+        if self.id in ('seedance','seedance25'): return 'https://ark.cn-beijing.volces.com/api/v3'
         workspace = os.getenv('WAN_WORKSPACE_ID', '')
         if not re.fullmatch(r'[A-Za-z0-9-]+', workspace):
             raise ValueError('请在 .env 设置 WAN_WORKSPACE_ID（北京业务空间 ID）')
@@ -77,6 +78,9 @@ class Provider:
         return headers
 
     def prepare(self, shot, config):
+        if self.id == 'seedance25':
+            from ark_provider import prepare_video
+            return prepare_video(shot,config)
         duration = float(shot['duration'])
         maximum = 30 if self.id in ('wan3','wan3-prime') else (10 if self.id == 'wan' else 15)
         if not duration.is_integer() or not 2 <= duration <= maximum:

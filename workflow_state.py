@@ -20,7 +20,7 @@ def task_matches(state,task):
 def derive(state):
  shots=state.get('shots',[]);approved=[s['id'] for s in shots if valid_approval(state,s)]
  prepared=bool(str(state.get('script','')).strip() and state.get('characters') and shots)
- all_approved=bool(shots and len(approved)==len(shots));videos=[t for t in state.get('tasks',[]) if t.get('kind')=='sequence' or t.get('provider') in ('wan3','wan3-prime','wan','seedance')]
+ all_approved=bool(shots and len(approved)==len(shots));videos=[t for t in state.get('tasks',[]) if t.get('kind')=='sequence' or t.get('provider') in ('wan3','wan3-prime','wan','seedance','seedance25')]
  current=[t for t in videos if task_matches(state,t)];latest=current[-1] if current else None
  ready_video=bool(latest and latest.get('status')=='completed' and (latest.get('local_video') or latest.get('video_url')))
  final=state.get('final_video') or {};complete=bool(ready_video and final.get('task_id')==latest['id'] and final.get('review_status') in ('approved','accepted_first_version') and final.get('review_task_id')==latest['id'])

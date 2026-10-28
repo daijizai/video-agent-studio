@@ -96,15 +96,20 @@ def budget_summary(state,database):
  if scope.get('database')!=str(Path(database).resolve()):scope={}
  grants=scope.get('budget_grants',{}) if scope.get('budget_mode')=='separate_v1' else {}
  return {kind:{**category_ledger(state,kind,grants.get(kind,{}).get('limit')),'authorized':kind in grants,'generation_paused':bool(scope.get('paused')),'execution_allowed':kind in grants and not scope.get('paused',False),'authorization':grants.get(kind)} for kind in ('image','video')}
-def authorize_budgets(project_id,database,image_limit,video_limit,source,content_revision):
+def authorize_budgets(project_id,database,image_limit,video_limit,source,content_revision,models=None):
  from math import isfinite
  for amount in (image_limit,video_limit):
   if type(amount) not in (int,float) or not isfinite(amount) or not 0<=amount<=100000:raise ValueError('分类预算须为0–100000的明确金额')
+ if models is not None:
+  allowed={'qwen-image-3.0','qwen-image-3.0-pro','wan3.0-video','wan3.0-video-prime','wan2.6-r2v-flash','doubao-seedance-2-0-mini-260615','doubao-seedance-2-5-260628','doubao-seedream-5-0-flash-260915'}
+  if not isinstance(models,list) or not models or any(not isinstance(m,str) or m not in allowed for m in models):raise ValueError('请明确指定已接入模型的预算授权范围')
  data=read();key=str(project_id);scope=data.get(key)
  if scope and scope.get('database')!=str(Path(database).resolve()):raise ValueError('项目与数据库绑定不匹配')
  if not scope:scope={'id':str(uuid.uuid4()),'database':str(Path(database).resolve()),'models':['qwen-image-3.0','qwen-image-3.0-pro','wan3.0-video','wan3.0-video-prime'],'image_limit':0,'video_limit':0};data[key]=scope
  version=len(scope.get('budget_authorization_history',[]))+1
  record={'version':version,'source':secret_store.redact(source),'content_revision':content_revision,'authorized_at':time.time(),'image_limit':image_limit,'video_limit':video_limit,'quality_approval':False}
+ if models is not None:
+  scope['models']=list(dict.fromkeys(scope.get('models',[])+models));record['added_models']=list(dict.fromkeys(models))
  scope.setdefault('budget_authorization_history',[]).append(record);scope['budget_mode']='separate_v1'
  scope['budget_grants']={kind:{'id':str(uuid.uuid4()),'limit':amount,'version':version,'source':secret_store.redact(source),'content_revision':content_revision,'authorized_at':record['authorized_at'],'purpose':'图片制作与必要修复' if kind=='image' else '视频制作；仍须画面质量与阶段批准'} for kind,amount in (('image',image_limit),('video',video_limit))}
  p=path();p.parent.mkdir(parents=True,exist_ok=True,mode=0o700);p.parent.chmod(0o700);fd,tmp=tempfile.mkstemp(dir=p.parent,prefix='.generation-')
