@@ -35,7 +35,7 @@ def main():
     settings.add_parser('status');p=settings.add_parser('configure');p.add_argument('--provider',choices=['wan3-prime','wan3','wan','seedance','seedance25'],default='wan3-prime');p.add_argument('--resolution',choices=['480p','720p','1080p'],default='720p');p.add_argument('--audio',action='store_true');p.add_argument('--ratio',choices=['16:9','9:16','1:1'],default='16:9');p.add_argument('--image-model',choices=['qwen-image-3.0-pro','qwen-image-3.0','doubao-seedream-5-0-flash-260915'])
     p=sub.add_parser('secret');p.add_argument('--provider',choices=['wan3-prime','wan3','wan','seedance','seedance25'],default='wan3-prime')
     budgets=sub.add_parser('budgets').add_subparsers(dest='action',required=True)
-    budgets.add_parser('show');p=budgets.add_parser('authorize');p.add_argument('--image',type=float,required=True);p.add_argument('--video',type=float,required=True);p.add_argument('--source',required=True,help='Explicit human total-budget authorization source; not quality approval');p.add_argument('--model',action='append',dest='models',help='Explicitly add this model to the budget scope; does not resume paused generation')
+    budgets.add_parser('show');p=budgets.add_parser('authorize');p.add_argument('--image',type=float,required=True);p.add_argument('--video',type=float,required=True);p.add_argument('--source',required=True,help='Explicit human total-budget authorization source; not quality approval');p.add_argument('--local-repairs',type=int,help='Explicit finite local repair count; does not resume generation');p.add_argument('--model',action='append',dest='models',help='Explicitly add this model to the budget scope; does not resume paused generation')
     p=sub.add_parser('budget');p.add_argument('amount',type=float)
     sub.add_parser('export')
     args=parser.parse_args()
@@ -66,7 +66,7 @@ def main():
             if args.action=='status':result=api('providers')
             else:result=api('settings',{'provider':args.provider,'resolution':args.resolution,'audio':args.audio,'ratio':args.ratio,**({'image_model':args.image_model} if args.image_model else {})},api('state'))
         elif group=='budgets':
-            result=api('budgets') if args.action=='show' else api('budgets/authorize',{'image_limit':args.image,'video_limit':args.video,'source':args.source,**({'models':args.models} if args.models else {})},api('state'))
+            result=api('budgets') if args.action=='show' else api('budgets/authorize',{'image_limit':args.image,'video_limit':args.video,'source':args.source,'local_repair_limit':args.local_repairs,**({'models':args.models} if args.models else {})},api('state'))
         elif group=='secret':
             # No --key or plaintext argv, no stdin fallback that echoes input.
             if not sys.stdin.isatty():raise ValueError('密钥配置须在交互终端运行；不可通过命令行参数或管道输入')

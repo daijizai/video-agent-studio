@@ -6,6 +6,8 @@ import generation_scope
 import media_files
 import workflow_state
 import storyboard_contract
+import base64
+import comfy_executor
 import re
 import copy
 from datetime import datetime,timezone
@@ -50,7 +52,7 @@ def cache_image(project_id,task_id,url):
 def cache_sync_image(s,task):
     """Recover a durable sync result without submitting again or overwriting newer art."""
     shot=next(x for x in s['shots'] if x['id']==task['shot_id'])
-    latest=next((t for t in reversed(s['image_tasks']) if t['shot_id']==shot['id'] and t['status']!='rejected'),None)
+    latest=next((t for t in reversed(s['image_tasks']) if t['shot_id']==shot['id'] and t['status']!='rejected' and (t.get('provider')!='comfy-masked-repair' or t.get('status')=='adopted')),None)
     is_current=latest is not None and latest['id']==task['id']
     frozen=workflow_state.valid_approval(s,shot) and task['id']!=shot.get('approved_image_task_id')
     local=None
@@ -75,10 +77,15 @@ def read(project_id=None):
         s=json.loads(row[0]);s.setdefault('image_tasks',[]);s.setdefault('target_duration',30 if s.get('demo') else 120);s['project_id']=project_id;s['revision']=c.execute('SELECT COALESCE(MAX(id),0) FROM revisions WHERE project_id=?',(project_id,)).fetchone()[0];s['workflow']=workflow_state.derive(s);return s
 def save(s):
     project_id=s.get('project_id',current_project())
-    with db() as c:
-        body=json.dumps(secret_store.redact(s),ensure_ascii=False)
-        c.execute('INSERT INTO revisions(body,project_id) VALUES (?,?)',(body,project_id))
+    with LOCK, db() as c:
+        c.execute('BEGIN IMMEDIATE')
+        actual=c.execute('SELECT COALESCE(MAX(id),0) FROM revisions WHERE project_id=?',(project_id,)).fetchone()[0]
+        if '_write_revision' in s and s['_write_revision']!=actual:raise ValueError('项目版本已变化，请刷新后重试')
+        body=json.dumps(secret_store.redact({k:v for k,v in s.items() if k!='_write_revision'}),ensure_ascii=False)
+        result=c.execute('INSERT INTO revisions(body,project_id) VALUES (?,?)',(body,project_id))
         c.execute('UPDATE state SET body=? WHERE id=?',(body,project_id))
+        if '_write_revision' in s:s['_write_revision']=result.lastrowid
+
 def project_list():
     with db() as c:
         items=[]
@@ -103,6 +110,17 @@ def remote(base,path,payload=None):
     with urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect).open(req,timeout=6) as r:return json.load(r)
 def content_snapshot(s,shot):
     return copy.deepcopy({'project_id':s['project_id'],'revision':s['revision'],'shot':shot,'characters':s['characters'],'continuity':s['continuity'],'settings':s['settings'],'sources':s.get('source_manifest',[]),'project_brief':s.get('project_brief','')})
+def repair_service():
+    """Operator-only profile. Browser settings cannot select models or files."""
+    profile={}
+    location=os.getenv('STUDIO_COMFY_PROFILE')
+    if location:
+        with open(location,'rb') as file:data=file.read(65537)
+        if len(data)>65536:raise ValueError('增强配置过大')
+        profile=json.loads(data)
+        if not isinstance(profile,dict):raise ValueError('增强配置无效')
+    return comfy_executor.RepairService(ROOT,DATA/'studio.db',comfy_executor.LocalTransport(profile.get('comfy_url','http://127.0.0.1:8188')),profile,lock=LOCK,selected=current_project)
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'static'),**kw)
     def reply(self,data,status=200):
@@ -149,17 +167,55 @@ class Handler(SimpleHTTPRequestHandler):
             image_count=sum(t['status']!='rejected' for t in s['image_tasks']);video_count=sum(t['status']!='rejected' for t in s['tasks'])
             return self.reply({'ffmpeg':bool(shutil.which('ffmpeg')),'ffprobe':bool(shutil.which('ffprobe')),'paid_generation':active,'generation_paused':bool(scope.get('paused')),'wan3_credential_present':bool(secret_store.get_key('WAN3_API_KEY')),'image_generation':active and (budgets['image']['authorized'] and budgets['image']['remaining_cny']>0 if separate else image_count<scope.get('image_limit',0)),'video_generation':active and (budgets['video']['authorized'] and budgets['video']['remaining_cny']>0 if separate else video_count<scope.get('video_limit',0)),'budgets':budgets,'budget_mode':scope.get('budget_mode','legacy'),'image_limit':scope.get('image_limit',0),'video_limit':scope.get('video_limit',0)})
         if self.path=='/api/budgets':return self.reply(generation_scope.budget_summary(read(),DATA/'studio.db'))
+        if self.path=='/api/comfy/preflight':
+            try:return self.reply(repair_service().public_preflight())
+            except Exception:return self.reply({'ready':False,'message':'局部修复暂不可用','quality_verified':False,'generation_called':False})
+        if self.path=='/api/comfy/diagnostics':
+            try:return self.reply(repair_service().preflight())
+            except Exception as error:return self.reply({'ready':False,'issues':[str(error)],'quality_verified':False})
         if self.path=='/api/providers':return self.reply(providers.config_status(read()))
         if self.path=='/api/export':return self.reply(read())
         if self.path=='/api/revisions':
             with db() as c:return self.reply([dict(r) for r in c.execute('SELECT id,created,body FROM revisions WHERE project_id=? ORDER BY id DESC LIMIT 30',(current_project(),))])
         return super().do_GET()
+    def handle_repair(self,p,action=None,state_response=False):
+        action=action or self.path.removeprefix('/api/comfy/')
+        try:
+            with LOCK:
+                state=read();pid=p.get('project_id')
+                if type(pid) is not int or pid!=state['project_id']:raise ValueError('当前项目已切换，请刷新')
+                if action in ('mask','begin','adopt') and p.get('revision')!=state['revision']:raise ValueError('项目版本已变化，请刷新')
+            service=repair_service()
+            if action=='mask':
+                value=p.get('png_base64')
+                if not isinstance(value,str) or len(value)>28*1024*1024:raise ValueError('遮罩无效')
+                result=service.import_mask(pid,p['revision'],p['shot_id'],base64.b64decode(value,validate=True))
+            elif action=='begin':result=service.begin(pid,p['revision'],p['shot_id'],p['source_url'],p['mask_url'],p['values'],p['request_id'])
+            elif action=='execute':result=service.execute(pid,p['task_id'])
+            elif action=='poll':result=service.poll(pid,p['task_id'])
+            elif action=='adopt':result=service.adopt(pid,p['revision'],p['task_id'],p['candidate_sha256'],secret_store.redact(p.get('source','')))
+            elif action=='reconcile':result=service.reconcile(pid,p['task_id'],p['prompt_id'])
+            else:raise ValueError('未知修复操作')
+            return self.reply(read(pid) if state_response else result)
+        except Exception:
+            # Raw graph, filesystem and dependency errors belong to diagnostics only.
+            return self.reply({'error':'局部修复操作未完成。请刷新并核对原任务；当前画面、审批、暂停与授权仍须有效。'},400)
+
     def do_POST(self):
         try:
             if self.headers.get('Origin') and self.headers['Origin'] != 'http://'+self.headers.get('Host',''):raise ValueError('拒绝跨站写入')
             n=int(self.headers.get('Content-Length','0'))
-            if n>2000000:raise ValueError('请求过大')
+            if n<0 or n>(28*1024*1024 if self.path=='/api/comfy/mask' else 2000000):raise ValueError('请求过大')
             p=json.loads(self.rfile.read(n) or b'{}')
+            if not isinstance(p,dict):raise ValueError('请求须为对象')
+            if self.path.startswith('/api/comfy/'):
+                return self.handle_repair(p)
+            # Route repair image polling before the legacy global-lock handler.
+            if self.path=='/api/image/poll':
+                with LOCK:
+                    snapshot=read()
+                    is_repair=any(t['id']==p.get('task_id') and t.get('provider')=='comfy-masked-repair' for t in snapshot['image_tasks'])
+                if is_repair:return self.handle_repair(p,action='poll',state_response=True)
             with LOCK:
                 action=self.path
                 if action=='/api/projects/new':return self.reply(create_project(p.get('title','')))
@@ -167,7 +223,7 @@ class Handler(SimpleHTTPRequestHandler):
                     project_id=int(p['project_id']);result=read(project_id)
                     with db() as c:c.execute('UPDATE workspace SET current_project=? WHERE id=1',(project_id,))
                     return self.reply(result)
-                s=read()
+                s=read();s['_write_revision']=s['revision']
                 if action in ('/api/submit','/api/image/submit','/api/provider/submit','/api/sequence/submit') and generation_scope.is_paused(s['project_id'],DATA/'studio.db'):raise ValueError('用户已暂停本项目新生成；预算和历史保留，不能提交新媒体')
                 if 'project_id' in p and int(p['project_id'])!=s['project_id']:raise ValueError('当前项目已切换，请刷新页面后再保存')
                 if 'revision' in p and int(p['revision'])!=s['revision']:raise ValueError('项目已被其他窗口或CLI修改，请刷新后重试')
@@ -199,7 +255,7 @@ class Handler(SimpleHTTPRequestHandler):
                     else:shot['approved']=False;shot['image_quality']='unreviewed'
                 elif action=='/api/budgets/authorize':
                     source=str(p.get('source','local user confirmation'))[:500]
-                    record=generation_scope.authorize_budgets(s['project_id'],DATA/'studio.db',p.get('image_limit'),p.get('video_limit'),source,s['revision'],models=p.get('models'))
+                    record=generation_scope.authorize_budgets(s['project_id'],DATA/'studio.db',p.get('image_limit'),p.get('video_limit'),source,s['revision'],models=p.get('models'),local_repair_limit=p.get('local_repair_limit'))
                     s['budget_authorizations']=generation_scope.read()[str(s['project_id'])]['budget_authorization_history']
                 elif action=='/api/settings':
                     s['settings']={**s['settings'], **{k:p[k] for k in ('comfy_url','workflow','provider','resolution','audio','ratio','image_model') if k in p}}
@@ -213,11 +269,11 @@ class Handler(SimpleHTTPRequestHandler):
                 elif action=='/api/image/submit':
                     if not generation_scope.active(s['project_id'],DATA/'studio.db'):raise ValueError('当前项目无图像生成授权')
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
-                    if any(t['status'] in ('submitting','unknown','queued','running') for t in s['image_tasks']):raise ValueError('当前项目已有在途或待核对图像任务，请先完成/核对原任务；图片提交采用单在途节流')
+                    if any(t['status'] in tuple(comfy_executor.LIVE) for t in s['image_tasks']):raise ValueError('当前项目已有在途或待核对图像任务，请先完成/核对原任务；图片提交采用单在途节流')
                     interval=12.2 if (shot.get('image_model') or s['settings'].get('image_model') or image_provider.DEFAULT_IMAGE_MODEL).endswith('-pro') else 3.2
                     if any(time.time()-float(t.get('submitted_epoch',0))<interval for t in s['image_tasks'] if t['status']!='rejected'):raise ValueError('图片提交尚未满足该模型平滑间隔，请稍后提交；未发起模型请求')
                     previous=[t for t in s['image_tasks'] if t['shot_id']==shot['id']]
-                    if any(t['status'] in ('submitting','unknown','queued','running') for t in previous):raise ValueError('已有图像任务，查询原任务，禁止重复提交')
+                    if any(t['status'] in tuple(comfy_executor.LIVE) for t in previous):raise ValueError('已有图像任务，查询原任务，禁止重复提交')
                     if previous and not p.get('redo'):raise ValueError('重生成须明确指定redo；历史图像保留')
                     provider=image_provider.for_model(shot.get('image_model') or s['settings'].get('image_model'));prepared=provider.prepare(shot,s['settings']);provider.headers()
                     task={'id':str(uuid.uuid4()),'submitted_at':datetime.now(timezone.utc).isoformat(),'submitted_epoch':time.time(),'shot_id':shot['id'],'name':shot['name'],'provider_task_id':None,'status':'submitting','estimate':prepared['estimated_cny'],'request':prepared['payload']}
@@ -262,7 +318,7 @@ class Handler(SimpleHTTPRequestHandler):
                     except Exception as error:
                         task['poll_error']=str(error);save(s);return self.reply(read())
                     shot=next(x for x in s['shots'] if x['id']==task['shot_id'])
-                    latest=next((t for t in reversed(s['image_tasks']) if t['shot_id']==shot['id'] and t['status']!='rejected'),None)
+                    latest=next((t for t in reversed(s['image_tasks']) if t['shot_id']==shot['id'] and t['status']!='rejected' and (t.get('provider')!='comfy-masked-repair' or t.get('status')=='adopted')),None)
                     is_current=latest is not None and latest['id']==task['id']
                     frozen=workflow_state.valid_approval(s,shot) and task['id']!=shot.get('approved_image_task_id')
                     if is_current and not frozen:shot['image_status']=result['status']

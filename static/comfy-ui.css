@@ -1,0 +1,15 @@
+.comfy-repair{border-top:1px solid var(--line);margin:16px 0;padding-top:12px}
+.comfy-repair>summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;font-weight:600}
+.comfy-repair>summary::before{content:'+';color:var(--accent)}
+.comfy-repair[open]>summary::before{content:'−'}
+.comfy-repair-body{min-width:0;padding:8px 0}
+.comfy-repair-body label{display:block;margin:12px 0;color:var(--muted)}
+.comfy-repair-body label>select,.comfy-repair-body label>textarea,.comfy-repair-body label>input{display:block;width:100%;margin-top:6px}
+.comfy-repair-body textarea{min-height:96px}
+.comfy-repair-body canvas{display:block;width:100%;border:1px solid var(--line);border-radius:8px;cursor:crosshair}
+.comfy-repair-body :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.comfy-repair-body button{min-height:44px;margin:8px 8px 8px 0}
+.comfy-repair-body article{padding:12px 0;border-top:1px solid var(--line)}
+.comfy-repair-body figure{margin:12px 0}
+.comfy-repair-body figure img{display:block;border-radius:8px}
+.comfy-repair-body figcaption{color:var(--muted);margin-top:6px}

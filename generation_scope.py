@@ -16,6 +16,10 @@ def check(state,database,kind,estimate,model,shot_id=None):
  if not active(state['project_id'],database):raise ValueError('当前项目没有有效的有限生成授权')
  scope=read()[str(state['project_id'])]
  if model not in scope['models']:raise ValueError('该模型不在本次Demo授权范围')
+ if model=='comfy-masked-repair-sd15-v1':
+  grant=scope.get('local_repair_grant',{})
+  used=[t for t in state.get('image_tasks',[]) if t.get('provider')=='comfy-masked-repair' and t.get('id') not in grant.get('baseline_task_ids',[]) and t.get('status')!='rejected']
+  if type(grant.get('limit')) is not int or grant['limit']<1 or len(used)>=grant['limit']:raise ValueError('本机局部修复没有剩余的有限次数授权')
  if scope.get('budget_mode')=='separate_v1':
   grant=scope.get('budget_grants',{}).get(kind)
   if not grant:raise ValueError('该类别预算尚未获得明确授权')
@@ -59,7 +63,7 @@ def extend_images(project_id,database,shot_ids,max_extra_cny,note):
   state=json.loads(row[0])
  if not set(shot_ids).issubset({s['id'] for s in state['shots']}):raise ValueError('镜头不属于该项目')
  images=[t for t in state.get('image_tasks',[]) if t['status']!='rejected']
- if any(t['status'] in ('submitting','queued','running','unknown') for t in images):raise ValueError('先核对在途任务，不借增量绕过unknown')
+ if any(t['status'] in ('submitting','uploading','queued','running','unknown','archive_pending') for t in images):raise ValueError('先核对在途任务，不借增量绕过unknown')
  data=read();scope=data[str(project_id)]
  if any(set(shot_ids)&set(e['shot_ids']) for e in scope.get('extensions',[])):raise ValueError('这些镜头已有增量授权，不重复扩大')
  reserved=sum((Decimal(str(t['estimate'])) for t in images+state.get('tasks',[])),Decimal('0'))
@@ -81,7 +85,7 @@ def category_ledger(state,kind,limit=None):
  known=Decimal('0');committed=Decimal('0');inflight=Decimal('0');unsettled=Decimal('0');unknown=0
  for task in rows:
   if task.get('status')=='rejected':continue
-  estimate=Decimal(str(task.get('estimate',0)));actual=task.get('actual_cost_cny');live=task.get('status') in ('submitting','queued','running','unknown')
+  estimate=Decimal(str(task.get('estimate',0)));actual=task.get('actual_cost_cny');live=task.get('status') in ('submitting','uploading','queued','running','unknown','archive_pending')
   if actual is None:
    unknown+=1;committed+=estimate
    if live:inflight+=estimate
@@ -96,18 +100,28 @@ def budget_summary(state,database):
  if scope.get('database')!=str(Path(database).resolve()):scope={}
  grants=scope.get('budget_grants',{}) if scope.get('budget_mode')=='separate_v1' else {}
  return {kind:{**category_ledger(state,kind,grants.get(kind,{}).get('limit')),'authorized':kind in grants,'generation_paused':bool(scope.get('paused')),'execution_allowed':kind in grants and not scope.get('paused',False),'authorization':grants.get(kind)} for kind in ('image','video')}
-def authorize_budgets(project_id,database,image_limit,video_limit,source,content_revision,models=None):
+def authorize_budgets(project_id,database,image_limit,video_limit,source,content_revision,models=None,local_repair_limit=None):
  from math import isfinite
  for amount in (image_limit,video_limit):
   if type(amount) not in (int,float) or not isfinite(amount) or not 0<=amount<=100000:raise ValueError('分类预算须为0–100000的明确金额')
  if models is not None:
-  allowed={'qwen-image-3.0','qwen-image-3.0-pro','wan3.0-video','wan3.0-video-prime','wan2.6-r2v-flash','doubao-seedance-2-0-mini-260615','doubao-seedance-2-5-260628','doubao-seedream-5-0-flash-260915'}
+  allowed={'qwen-image-3.0','qwen-image-3.0-pro','wan3.0-video','wan3.0-video-prime','wan2.6-r2v-flash','doubao-seedance-2-0-mini-260615','doubao-seedance-2-5-260628','doubao-seedream-5-0-flash-260915','comfy-masked-repair-sd15-v1'}
   if not isinstance(models,list) or not models or any(not isinstance(m,str) or m not in allowed for m in models):raise ValueError('请明确指定已接入模型的预算授权范围')
+ if local_repair_limit is not None and (type(local_repair_limit) is not int or not 1<=local_repair_limit<=100):raise ValueError('本机修复次数须为1–100的明确整数')
  data=read();key=str(project_id);scope=data.get(key)
  if scope and scope.get('database')!=str(Path(database).resolve()):raise ValueError('项目与数据库绑定不匹配')
  if not scope:scope={'id':str(uuid.uuid4()),'database':str(Path(database).resolve()),'models':['qwen-image-3.0','qwen-image-3.0-pro','wan3.0-video','wan3.0-video-prime'],'image_limit':0,'video_limit':0};data[key]=scope
+ if models and 'comfy-masked-repair-sd15-v1' in models and local_repair_limit is None and not scope.get('local_repair_grant'):raise ValueError('本机局部修复须明确授权次数')
+ if local_repair_limit is not None:
+  if 'comfy-masked-repair-sd15-v1' not in (models or []) and 'comfy-masked-repair-sd15-v1' not in scope.get('models',[]):raise ValueError('次数授权须明确包含局部修复模型范围')
+  with sqlite3.connect(database) as con:
+   row=con.execute('SELECT body FROM state WHERE id=?',(project_id,)).fetchone()
+   if not row:raise ValueError('项目不存在')
+   baseline=[t['id'] for t in json.loads(row[0]).get('image_tasks',[]) if t.get('provider')=='comfy-masked-repair']
+  scope['local_repair_grant']={'id':str(uuid.uuid4()),'limit':local_repair_limit,'baseline_task_ids':baseline,'source':secret_store.redact(source),'content_revision':content_revision}
  version=len(scope.get('budget_authorization_history',[]))+1
  record={'version':version,'source':secret_store.redact(source),'content_revision':content_revision,'authorized_at':time.time(),'image_limit':image_limit,'video_limit':video_limit,'quality_approval':False}
+ if local_repair_limit is not None:record['local_repair_limit']=local_repair_limit
  if models is not None:
   scope['models']=list(dict.fromkeys(scope.get('models',[])+models));record['added_models']=list(dict.fromkeys(models))
  scope.setdefault('budget_authorization_history',[]).append(record);scope['budget_mode']='separate_v1'

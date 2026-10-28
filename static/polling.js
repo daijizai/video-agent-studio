@@ -1,7 +1,7 @@
 // Query-only, serial, project-checked polling. This module never calls a submit endpoint.
 (function(){
  const attempts=new Map(),failures=new Map();let busy=false,timer;
- function eligible(tasks){return tasks.filter(t=>(t.provider_task_id||(t.provider==='seedream'&&t.status==='completed'&&t.download_error))&&(['queued','running'].includes(t.status)||(t.status==='unknown'&&t.provider_task_id)||(t.status==='completed'&&t.download_error))&&(attempts.get(t.id)||0)<90)}
+ function eligible(tasks){return tasks.filter(t=>(t.provider_task_id||(t.provider==='seedream'&&t.status==='completed'&&t.download_error))&&(['queued','running','archive_pending'].includes(t.status)||(t.status==='unknown'&&t.provider_task_id)||(t.status==='completed'&&t.download_error))&&(attempts.get(t.id)||0)<90)}
  async function tick(){
   if(busy){schedule(8000);return}busy=true;let delay=document.hidden?30000:8000;
   try{
