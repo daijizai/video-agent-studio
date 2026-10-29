@@ -2,6 +2,14 @@
 
 以 Codex 为制作中枢的本地 AI 短剧工作台。HTML/JS 网页负责可视化制作；Python + SQLite 管理项目、角色版本、分镜、任务与预算；ComfyUI 执行本机工作流；**默认图片Qwen Image3.0 Pro、视频Wan3.0-Video-Prime，标准版保留可选**；FFmpeg 做成片拼接与字幕。
 
+## 代码量增长
+
+![代码量随日期增长的手绘折线图](docs/metrics/code-growth.svg)
+
+从 Git 历史回溯主分支每天最后一次提交的源码快照（北京时间），纵轴为**非空源码行数**，横轴为日期；包含测试与注释，代码删减也会如实下降。统计 `.py/.js/.ts/.tsx/.jsx/.html/.css/.sh`，排除文档、素材、依赖和运行数据；这不是剔除注释后的逻辑代码行数，也不代表质量或完成度。无提交日沿用前次状态。
+
+每次推送到 `main` 后及每天北京时间 09:23 由 GitHub Actions 自动重建，也可在 Actions → **Update code growth** 手动运行。图表与[每日数据](docs/metrics/code-growth.json)随仓库保存，无需第三方服务或额外密钥。本地重建：`python3 scripts/code_growth.py`。
+
 ## 运行
 
 Python 3.9+，应用无 pip 或 npm 依赖：
