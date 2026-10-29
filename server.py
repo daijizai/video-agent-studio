@@ -33,7 +33,7 @@ def init():
         c.execute('CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, current_project INTEGER)')
         c.execute('INSERT OR IGNORE INTO workspace VALUES (1,1)')
         if not c.execute('SELECT 1 FROM state').fetchone():
-            s={'title':'雾港来信','episode':'EP 01 · 消失的第七分钟','demo':True,'target_duration':30,'budget':120,'script':'雨夜，旧港口的钟楼突然停在 23:53。\n\n林雾收到一封来自七分钟后的语音。电话里，是她自己的声音：不要登上最后一班渡轮。\n\n陈渡在码头等她。他手中的船票，印着明天的日期。','continuity':'林雾始终佩戴银色旧手表；陈渡不知道语音的来源。港口时间停在 23:53。','characters':[{'id':'lin','name':'林雾','role':'主角 / 调查记者','version':1,'notes':'28 岁，黑色齐肩短发，灰色风衣，左腕银色旧手表。冷静、敏锐，右眉有细小伤疤。','color':'#729c9b'},{'id':'chen','name':'陈渡','role':'主角 / 渡轮驾驶员','version':1,'notes':'32 岁，深蓝工作夹克，短发，左手旧烧伤。说话克制，始终随身携带黄铜钥匙。','color':'#ac9071'}],'shots':[],'tasks':[],'settings':{'comfy_url':'','workflow':'','provider':'wan3-prime','resolution':'720p','audio':False,'image_model':'qwen-image-3.0-pro'},'events':['已载入示例策划内容；没有生成媒体或产生费用。']}
+            s={'title':'雾港来信','episode':'EP 01 · 消失的第七分钟','demo':True,'target_duration':30,'budget':120,'script':'雨夜，旧港口的钟楼突然停在 23:53。\n\n林雾收到一封来自七分钟后的语音。电话里，是她自己的声音：不要登上最后一班渡轮。\n\n陈渡在码头等她。他手中的船票，印着明天的日期。','continuity':'林雾始终佩戴银色旧手表；陈渡不知道语音的来源。港口时间停在 23:53。','characters':[{'id':'lin','name':'林雾','role':'主角 / 调查记者','version':1,'notes':'28 岁，黑色齐肩短发，灰色风衣，左腕银色旧手表。冷静、敏锐，右眉有细小伤疤。','color':'#729c9b'},{'id':'chen','name':'陈渡','role':'主角 / 渡轮驾驶员','version':1,'notes':'32 岁，深蓝工作夹克，短发，左手旧烧伤。说话克制，始终随身携带黄铜钥匙。','color':'#ac9071'}],'shots':[],'tasks':[],'settings':{'comfy_url':'','workflow':'','provider':'wan3-prime','resolution':'720p','audio':False,'image_model':image_provider.DEFAULT_IMAGE_MODEL},'events':['已载入示例策划内容；没有生成媒体或产生费用。']}
             for i,(name,frame,duration,prompt) in enumerate([('雾中的钟楼','远景 · 缓慢推进',8,'雨夜的旧港口，钟楼停在23:53，低饱和青绿色，电影光影'),('七分钟后的来电','近景 · 固定机位',6,'林雾站在雨棚下看手机，灰风衣，银色旧手表，冷光映在脸上'),('最后一班渡轮','全景 · 横向跟随',8,'陈渡站在渡轮入口，深蓝工作夹克，手持纸船票，海雾'),('明天的船票','特写 · 缓慢拉近',5,'湿润的纸船票与黄铜钥匙，背景虚化的港口灯光')]):
                 s['shots'].append({'id':str(uuid.uuid4()),'name':name,'frame':frame,'duration':duration,'prompt':prompt,'approved':False,'status':'待确认','estimate':8,'review':'','asset':''})
             c.execute('INSERT INTO state VALUES (1,?)',(json.dumps(s,ensure_ascii=False),))
@@ -102,7 +102,7 @@ def create_project(title):
     title=str(title).strip()
     if not title or len(title)>80:raise ValueError('项目名称须为 1–80 个字符')
     s={'title':title,'episode':'','demo':False,'target_duration':120,'budget':0,'script':'','continuity':'','characters':[],'shots':[],'tasks':[],'image_tasks':[],
-       'settings':{'comfy_url':'','workflow':'','provider':'wan3-prime','resolution':'720p','image_model':'qwen-image-3.0-pro','audio':False},'events':['新项目已创建；尚无生成任务。']}
+       'settings':{'comfy_url':'','workflow':'','provider':'wan3-prime','resolution':'720p','image_model':image_provider.DEFAULT_IMAGE_MODEL,'audio':False},'events':['新项目已创建；尚无生成任务。']}
     with db() as c:
         result=c.execute('INSERT INTO state(body) VALUES (?)',(json.dumps(secret_store.redact(s),ensure_ascii=False),));pid=result.lastrowid
         c.execute('UPDATE workspace SET current_project=? WHERE id=1',(pid,))

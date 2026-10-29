@@ -21,8 +21,8 @@ import image_provider
 import providers
 import secret_store
 
-MODELS = {'qwen-image-3.0-pro': 'Qwen Image3.0 Pro', 'qwen-image-3.0': 'Qwen Image3.0',
-          'doubao-seedream-5-0-flash-260915': 'Seedream 5.0 Flash'}
+MODELS = {'doubao-seedream-5-0-flash-260915': 'Seedream 5.0 Flash',
+          'qwen-image-3.0-pro': 'Qwen Image3.0 Pro', 'qwen-image-3.0': 'Qwen Image3.0'}
 LIVE = ('submitting', 'uploading', 'queued', 'running', 'unknown', 'archive_pending')
 MASTER = {'character': 'portrait', 'object': 'main'}
 

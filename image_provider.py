@@ -2,9 +2,10 @@
 from decimal import Decimal
 import re, urllib.parse
 import providers, secret_store
-DEFAULT_IMAGE_MODEL='qwen-image-3.0-pro'
+DEFAULT_IMAGE_MODEL='doubao-seedream-5-0-flash-260915'
 STATIC_FRAME_PREFIX='单张独立画面：只描绘一个静态瞬间、一个构图。不画分格、拼贴、分屏、三联画或接触印样。不将时间顺序展开成多个画面。'
 def for_model(model=None):
+    model=model or DEFAULT_IMAGE_MODEL
     if model=='doubao-seedream-5-0-flash-260915':
         from ark_provider import SeedreamProvider
         return SeedreamProvider()
@@ -18,7 +19,7 @@ class ImageProvider:
     def prepare(self,shot,defaults=None):
         prompt=str(shot.get('image_prompt') or shot.get('prompt') or '').strip()
         if not prompt:raise ValueError('请先填写关键帧画面描述')
-        model=shot.get('image_model') or (defaults or {}).get('image_model') or DEFAULT_IMAGE_MODEL
+        model=shot.get('image_model') or (defaults or {}).get('image_model') or 'qwen-image-3.0-pro'
         if model not in ('qwen-image-3.0','qwen-image-3.0-pro'):raise ValueError('未支持的分镜图模型')
         refs=shot.get('reference_images',[])
         if not isinstance(refs,list) or len(refs)>3:raise ValueError('Qwen Image 3.0最多支持3张角色/场景参考图')
