@@ -254,8 +254,7 @@ def review_status(state,asset,version):
     identity=plan.get('identity_tag');structure=plan.get('structure_tag')
     base=bool(identity in tags and structure in tags)
     body_complete=all(t in tags for t in ('body_front','body_side','body_back'))
-    head_complete=(not plan.get('has_head')) or (('portrait' in tags or 'head_front' in tags) and all(t in tags for t in ('head_side','head_back')))
-    multi=bool(asset['kind']=='character' and body_complete and head_complete)
+    multi=bool(asset['kind']=='character' and body_complete)
     eligible=[]
     for tag in tags:
         req=recipe(asset['kind'],tag,version.get('views',[{}])[0].get('origin',{}).get('model','qwen-image-3.0-pro'),version['design_profile'])['template']['requires']
@@ -277,11 +276,17 @@ def select_reference_views(state,asset,version,tag,model,reference_version,reque
     plan=spec['template']['master_plan']
     required=list(dict.fromkeys([plan['identity_tag']]+([plan['structure_tag']] if 'body' in spec['template']['requires'] else [])))
     if any(t not in by_tag or t not in status['reviewed_tags'] for t in required):raise ValueError('缺少当前规范已审阅的'+('物品主图' if asset['kind']=='object' else '身份及全身正面母版' if 'body' in spec['template']['requires'] else '身份母版'))
+    if asset['kind']=='character' and tag=='body_back':
+        if 'body_side' not in by_tag or 'body_side' not in status['reviewed_tags']:raise ValueError('请先审阅采用全身侧面，再生成全身背面')
+        required.append('body_side')
     for source_tag in required:
         source_model=by_tag[source_tag].get('origin',{}).get('model','qwen-image-3.0-pro')
         if recipe(asset['kind'],source_tag,source_model,version['design_profile'])['recipe_hash']!=recipe(asset['kind'],source_tag,source_model,adopted['design_profile'])['recipe_hash']:
             raise ValueError('母版配方已变化，请重新交接并审阅母版')
-    refs=[by_tag[t] for t in required]
+    # For an older portrait-based identity, keep the approval gate but send the
+    # full-body front and side as the two visual anchors for a body back view.
+    send_tags=[t for t in required if not (asset['kind']=='character' and tag=='body_back' and t==plan['identity_tag'] and t!=plan['structure_tag'])]
+    refs=[by_tag[t] for t in send_tags]
     if requested_view_id and requested_view_id not in {v['id'] for v in refs}:
         selected=next((v for v in adopted.get('views',[]) if v['id']==requested_view_id),None)
         if asset['kind']=='character' and tag.startswith('head_') and selected and selected['tag']=='head_front' and 'head_front' in status['reviewed_tags']:refs.append(selected)

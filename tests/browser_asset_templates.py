@@ -39,26 +39,27 @@ try:
   page.keyboard.press('Escape');assert page.locator('[data-generate]').is_disabled()
   role=fixture.service.catalog(1)['assets'][0];fixture.install_profile(role['id'],handoff(root,'character'))
   page.reload();page.locator('[data-generate]').wait_for();before=copy.deepcopy(fixture.state());page.locator('[data-generate]').click()
-  assert page.locator('[data-view-tag][value="portrait"]').is_checked()
+  assert page.locator('[data-view-tag][value="portrait"]').count()==0
   assert page.locator('[data-view-tag][value="body_front"]').is_disabled()
   assert page.locator('[data-view-tag][value="body_back"]').is_disabled()
-  page.get_by_role('button',name='预览本次生成计划',exact=True).click()
-  page.get_by_role('heading',name='确认生成计划',exact=True).wait_for()
-  assert '设计草案 vfixture-1' in page.get_by_role('dialog').inner_text();assert '预计 ¥0.25' in page.get_by_role('dialog').inner_text()
-  assert page.get_by_role('button',name='生成暂不可用',exact=True).is_disabled()
+  assert page.get_by_role('button',name='预览本次生成计划',exact=True).is_disabled()
+  assert '先审阅已保存的身份母版' in page.get_by_role('dialog').inner_text()
   assert fixture.state()==before;page.keyboard.press('Escape')
   # Adopt an artificial identity image in this disposable fixture.
   role=fixture.service.catalog(1)['assets'][0];role=fixture.upload(role,'portrait');fixture.action('adopt',asset_id=role['id'],version=4)
   page.reload();page.locator('[data-generate]').wait_for();assert '全身正面待建立' in page.locator('.material-production').inner_text()
   page.locator('[data-generate]').click()
   assert page.locator('[data-view-tag][value="body_front"]').is_checked()
-  assert page.locator('[data-view-tag][value="head_side"]').is_enabled()
+  assert page.locator('[data-view-tag][value="head_side"]').count()==0
   assert page.locator('[data-view-tag][value="body_side"]').is_disabled()
   page.get_by_role('button',name='预览本次生成计划',exact=True).click();page.get_by_role('heading',name='确认生成计划',exact=True).wait_for()
   assert '预计 ¥0.52' in page.get_by_role('dialog').inner_text();page.keyboard.press('Escape')
   role=fixture.upload(role,'body_front');fixture.action('adopt',asset_id=role['id'],version=5)
   page.reload();page.locator('[data-generate]').wait_for();page.locator('[data-generate]').click()
-  assert page.locator('[data-view-tag][value="body_side"]').is_enabled();assert page.locator('[data-view-tag][value="body_back"]').is_enabled()
+  assert page.locator('[data-view-tag][value="body_side"]').is_enabled();assert page.locator('[data-view-tag][value="body_back"]').is_disabled()
+  page.keyboard.press('Escape');role=fixture.upload(role,'body_side');fixture.action('adopt',asset_id=role['id'],version=6)
+  page.reload();page.locator('[data-generate]').wait_for();page.locator('[data-generate]').click()
+  assert page.locator('[data-view-tag][value="body_back"]').is_enabled()
   page.locator('[data-view-tag][value="body_back"]').check();page.get_by_role('button',name='预览本次生成计划',exact=True).click()
   page.get_by_role('heading',name='确认生成计划',exact=True).wait_for();assert '预计 ¥0.54' in page.get_by_role('dialog').inner_text()
   page.keyboard.press('Escape')
@@ -70,9 +71,9 @@ try:
    assert fixture.state()==before_recipe
    page.locator('[data-generate]').click();assert page.locator('[data-view-tag][value="body_back"]').is_disabled();page.keyboard.press('Escape')
    open_material_details(page);page.locator('[data-history]').click()
-   page.get_by_role('button',name='按当前规范重新审阅 v5',exact=True).click()
+   page.get_by_role('button',name='按当前规范重新审阅 v6',exact=True).click()
    page.wait_for_function('!document.querySelector("dialog")')
-   assert len(fixture.service.catalog(1)['assets'][0]['production_reviews'])==3
+   assert len(fixture.service.catalog(1)['assets'][0]['production_reviews'])==4
   for width,height in [(375,812),(812,375),(1440,1000)]:
    page.set_viewport_size({'width':width,'height':height});assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
    open_material_details(page);dialog=page.get_by_role('dialog');assert dialog.evaluate('(e)=>e.getBoundingClientRect().width<=innerWidth')

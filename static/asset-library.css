@@ -3,3 +3,9 @@
 main > header .workspace-home-link{white-space:nowrap;flex-shrink:0}
 
 .asset-design{padding:14px 0;border-bottom:1px solid var(--line);margin-bottom:16px}.asset-design p{font-size:13px;line-height:1.8;margin:10px 0}.asset-design details{margin-top:12px}.material-production{font-size:12px;color:var(--accent);margin-top:10px}
+
+.material-cover .material-next-view{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:44px;height:44px;min-height:44px;padding:0;border:1px solid #65705d;border-radius:50%;background:#151a17e8;color:var(--accent);font-size:30px;line-height:1;z-index:1}
+.material-cover .material-next-view:hover{background:#35412d}.material-cover .material-next-view:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.material-view-label{position:absolute;left:8px;bottom:8px;max-width:calc(100% - 16px);padding:3px 8px;border-radius:4px;background:#101413e8;color:var(--text);font-size:12px;pointer-events:none;overflow-wrap:anywhere}
+.material-coverage{font-size:12px;line-height:1.7;padding:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:8px 0}.material-coverage p{margin:2px 0!important;white-space:normal}.material-coverage p>span{display:inline-block;margin-right:8px;color:var(--text)}
+.asset-list .material-view-label{font-size:11px;left:3px;bottom:3px;padding:2px 4px}.asset-list .material-cover .material-next-view{right:3px}.asset-list .material-coverage{grid-column:2;grid-row:3}

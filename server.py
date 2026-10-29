@@ -130,8 +130,36 @@ def repair_service():
         if not isinstance(profile,dict):raise ValueError('增强配置无效')
     return comfy_executor.RepairService(ROOT,DATA/'studio.db',comfy_executor.LocalTransport(profile.get('comfy_url','http://127.0.0.1:8188')),profile,lock=LOCK,selected=current_project)
 
+def versioned_html(path):
+    """Fingerprint local UI assets from their bytes, never a manually edited version."""
+    import hashlib
+    root=(ROOT/'static').resolve()
+    def replace(match):
+        name=match.group(2).split('?',1)[0]
+        asset=(path.parent/name).resolve()
+        if not asset.is_relative_to(root) or not asset.is_file():return match.group(0)
+        stamp=hashlib.sha256(asset.read_bytes()).hexdigest()[:16]
+        return match.group(1)+name+'?v='+stamp+match.group(3)
+    return re.sub(r'((?:src|href)=")([^"?#]+\.(?:js|css)(?:\?[^"#]*)?)(")',replace,path.read_text()).encode('utf-8')
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'static'),**kw)
+    def end_headers(self):
+        route=urllib.parse.urlsplit(self.path).path
+        if route=='/' or route.endswith(('.html','.js','.css')):
+            self.send_header('Cache-Control','no-cache, must-revalidate')
+        super().end_headers()
+    def send_head(self):
+        import io
+        route=urllib.parse.urlsplit(self.path).path
+        if route in ('/','/index.html','/workspace.html'):
+            content=versioned_html(ROOT/'static'/('workspace.html' if route=='/workspace.html' else 'index.html'))
+            self.send_response(200)
+            self.send_header('Content-Type','text/html; charset=utf-8')
+            self.send_header('Content-Length',str(len(content)))
+            self.end_headers()
+            return io.BytesIO(content)
+        return super().send_head()
     def reply(self,data,status=200):
         b=json.dumps(secret_store.redact(data),ensure_ascii=False).encode(); self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
     def serve_media(self,head=False):

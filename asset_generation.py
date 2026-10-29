@@ -180,6 +180,8 @@ class AssetGeneration:
         description=asset_templates.render_prompt(bundle)
         if style.get('prompt') or style.get('description'):description+='\n项目统一视觉风格（优先用于画风、光线和材质，不改变主体身份）：'+(style.get('prompt') or style['description'])
         if references:description+='\n仅使用绑定的已采用身份/全身/物品母版；保持同一外观，不重新设计。'
+        if asset['kind']=='character' and tag=='body_back' and len(references)==2:
+            description+='\n第一张参考图是已采用的全身正面，第二张是已采用的全身侧面；保持同一主体的比例、材质与结构，输出背面，不复制参考图的观察角度。'
         markers = ['https://material-reference.invalid/'+v['sha256']+'.'+v['extension'] for v in references]
         style_ref=style.get('reference')
         if style_ref:
