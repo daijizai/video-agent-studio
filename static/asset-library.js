@@ -213,7 +213,7 @@ const MaterialLibrary = (() => {
       try{
         const catalog=context.catalog,live=(catalog.tasks||[]).find(t=>['queued','running'].includes(t.status));
         if(live){attempts++;await request(catalog,'generation/poll',{task_id:live.id});await load()}
-        else if(catalog.generation_enabled){const batch=(catalog.batches||[]).find(b=>catalog.tasks.some(t=>t.batch_id===b.id&&t.status==='reserved')&&!catalog.tasks.some(t=>t.batch_id===b.id&&(['unknown','failed','rejected','submitting'].includes(t.status)||t.result_issue||t.download_error)));if(batch){attempts++;await request(catalog,'generation/advance',{batch_id:batch.id});await load()}}
+        if(context.catalog.generation_enabled){const current=context.catalog;const batch=(current.batches||[]).find(b=>current.tasks.some(t=>t.batch_id===b.id&&t.status==='reserved'));if(batch){attempts++;await request(current,'generation/advance',{batch_id:batch.id});await load()}}
       }catch(error){if(alive())container.querySelector('[data-asset-notice]').textContent=error.message}
       if(alive())setTimeout(tick,document.hidden?30000:8000);
     }

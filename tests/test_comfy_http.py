@@ -88,13 +88,13 @@ class RepairHTTPTests(RepairTests):
         code,result=self.api('comfy/execute',{'project_id':1,'task_id':'wrong'})
         self.assertEqual(code,400);self.assertEqual(self.calls.count(('POST','/prompt')),0)
 
-    def test_uploading_and_archive_pending_block_other_image_submission(self):
+    def test_uploading_and_archive_pending_block_duplicate_shot_submission(self):
         task=self.http_begin()
         for status in ('uploading','archive_pending'):
             self.service.update(1,task['id'],status=status)
             with patch.object(server.generation_scope,'active',return_value=True),patch.object(server.generation_scope,'is_paused',return_value=False):
                 code,result=self.api('image/submit',{**self.common(),'shot_id':'shot1','redo':True})
-            self.assertEqual(code,400);self.assertIn('在途',result['error'])
+            self.assertEqual(code,400);self.assertIn('禁止重复提交',result['error'])
 
 # Avoid unittest rediscovering the imported base in this module.
 del RepairTests

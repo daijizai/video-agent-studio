@@ -366,12 +366,11 @@ class Handler(SimpleHTTPRequestHandler):
                 elif action=='/api/image/submit':
                     if not generation_scope.active(s['project_id'],DATA/'studio.db'):raise ValueError('当前项目无图像生成授权')
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
-                    if any(t['status'] in tuple(comfy_executor.LIVE)+('reserved',) for t in s['image_tasks']):raise ValueError('当前项目已有在途或待核对图像任务，请先完成/核对原任务；图片提交采用单在途节流')
+                    previous=[t for t in s['image_tasks'] if t.get('shot_id')==shot['id']]
+                    if any(t['status'] in tuple(comfy_executor.LIVE)+('reserved',) for t in previous):raise ValueError('该镜头已有在途或未知图像任务，请查询原任务，禁止重复提交')
+                    if previous and not p.get('redo'):raise ValueError('重生成须明确指定redo；历史图像保留')
                     interval=12.2 if (shot.get('image_model') or s['settings'].get('image_model') or image_provider.DEFAULT_IMAGE_MODEL).endswith('-pro') else 3.2
                     if any(time.time()-float(t.get('submitted_epoch',0))<interval for t in s['image_tasks'] if t['status']!='rejected'):raise ValueError('图片提交尚未满足该模型平滑间隔，请稍后提交；未发起模型请求')
-                    previous=[t for t in s['image_tasks'] if t.get('shot_id')==shot['id']]
-                    if any(t['status'] in tuple(comfy_executor.LIVE) for t in previous):raise ValueError('已有图像任务，查询原任务，禁止重复提交')
-                    if previous and not p.get('redo'):raise ValueError('重生成须明确指定redo；历史图像保留')
                     provider=image_provider.for_model(shot.get('image_model') or s['settings'].get('image_model'));prepared=asset_generation.prepare_storyboard(material_service(),{**shot,'_material_project_id':s['project_id']},s['settings']);provider.headers()
                     task={'id':str(uuid.uuid4()),'submitted_at':datetime.now(timezone.utc).isoformat(),'submitted_epoch':time.time(),'shot_id':shot['id'],'name':shot['name'],'provider_task_id':None,'status':'submitting','estimate':prepared['estimated_cny'],'request':prepared.get('request_manifest',prepared['payload'])}
                     if prepared.get('style_snapshot'):task['style_snapshot']=prepared['style_snapshot'];task['request_sha256']=prepared['request_sha256']

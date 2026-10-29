@@ -258,8 +258,9 @@ class AssetGeneration:
             plan = self._plan(state, items, model)
             if plan['fingerprint'] != fingerprint:
                 raise ValueError('素材设定或引用已变化，请重新预览本次计划')
-            if any(t.get('status') in LIVE+('reserved',) for t in state.get('image_tasks', [])):
-                raise ValueError('本项目已有在途、待执行或未知图片任务，请先核对原任务')
+            targets = {(j['asset_id'], j['target_view']) for j in plan['jobs']}
+            if any(t.get('status') in LIVE+('reserved',) and (t.get('asset_id'), t.get('target_view')) in targets for t in state.get('image_tasks', [])):
+                raise ValueError('该素材视图已有在途或未知任务，请核对原任务，禁止重复提交')
             authorization = self._authorize(state, plan['estimated_cny'], model)
             # Credential presence is checked before a reservation; this makes no API call.
             self.provider_factory(model).headers()
@@ -334,14 +335,8 @@ class AssetGeneration:
         state = self._state(project_id)
         if not any(b['id'] == batch_id and b.get('user_confirmed') for b in state.get('asset_generation_batches', [])):
             raise ValueError('生成计划不存在或未确认')
-        if any(t.get('status') in LIVE for t in state.get('image_tasks', [])):
-            return self.catalog(project_id)
         task = next((t for t in state.get('image_tasks', []) if t.get('batch_id') == batch_id and t.get('status') == 'reserved'), None)
         if task is None:return self.catalog(project_id)
-        # Stop the batch after an uncertain, failed, rejected or anomalous result.
-        prior = [t for t in state['image_tasks'] if t.get('batch_id') == batch_id and t['status'] != 'reserved']
-        if any(t['status'] in ('failed','rejected','unknown') or t.get('result_issue') or t.get('download_error') for t in prior):
-            return self.catalog(project_id)
         interval = 12.2 if task['model'].endswith('-pro') else 3.2
         last = max((float(t.get('submitted_epoch',0)) for t in state['image_tasks'] if t['status'] != 'rejected'), default=0)
         if self.clock()-last < interval:return self.catalog(project_id)
@@ -349,7 +344,10 @@ class AssetGeneration:
         prepared = self._hydrate(project_id, task); provider = self.provider_factory(task['model']); provider.headers()
         def begin(latest):
             current = next(t for t in latest['image_tasks'] if t['id'] == task['id'])
-            if current['status'] != 'reserved' or any(t.get('status') in LIVE for t in latest['image_tasks']):return False
+            if current['status'] != 'reserved':return False
+            # Recheck the provider pacing window under the reservation transaction.
+            last = max((float(t.get('submitted_epoch',0)) for t in latest['image_tasks'] if t['status'] != 'rejected'), default=0)
+            if self.clock()-last < interval:return False
             other = copy.deepcopy(latest); other['image_tasks'] = [t for t in other['image_tasks'] if t['id'] != current['id']]
             authorization=self._authorize(other, current['estimate'], current['model'])
             current.update(status='submitting',submitted_epoch=self.clock(),request_sha256=digest(prepared['payload']),submitted_at=library._now(),

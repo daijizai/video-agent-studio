@@ -108,6 +108,29 @@ class GenerationTests(AssetFixture):
         self.assertEqual(self.state()['image_tasks'][1]['status'],'cancelled')
         self.assertEqual(generation_scope.category_ledger(self.state(),'image',1)['committed_cny'],.25)
 
+    def test_independent_batches_overlap_but_duplicate_view_is_blocked(self):
+        self.authorize();items,preview=self.plan();self.submit_plan(items,preview)
+        items,preview=self.plan()
+        with self.assertRaisesRegex(ValueError,'禁止重复提交'):
+            self.submit_plan(items,preview,'b'*32)
+        second=self.create(name='手机');self.now+=13
+        items,preview=self.plan(second);self.submit_plan(items,preview,'c'*32)
+        self.assertEqual(self.provider.submit.call_count,2)
+        self.assertEqual([t['status'] for t in self.state()['image_tasks']],['queued','queued'])
+        self.assertEqual(generation_scope.category_ledger(self.state(),'image',3)['committed_cny'],.5)
+
+    def test_unknown_task_does_not_block_independent_reserved_item(self):
+        second=self.create(name='手机');self.authorize()
+        items=[{'asset_id':a['id'],'version':1,'view_tag':'main'} for a in [self.asset,second]]
+        preview=self.generation.preview(1,items,'qwen-image-3.0-pro')
+        self.provider.submit.side_effect=[TimeoutError('uncertain'),'second-task']
+        self.submit_plan(items,preview);self.now+=13
+        self.generation.advance(1,'a'*32)
+        self.assertEqual(self.provider.submit.call_count,2)
+        self.assertEqual([t['status'] for t in self.state()['image_tasks']],['unknown','queued'])
+        self.generation.advance(1,'a'*32)
+        self.assertEqual(self.provider.submit.call_count,2)
+
     def test_explicit_rejection_releases_reservation_and_never_retries(self):
         self.authorize();self.provider.submit.side_effect=providers.ProviderHTTPError(400,'InvalidParameter','bad',{})
         items,preview=self.plan();self.submit_plan(items,preview)
