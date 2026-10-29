@@ -27,7 +27,7 @@ MAX_SIDE = 8192
 MAX_DECODED = 68 * 1024 * 1024
 KINDS = ('character', 'object')
 VIEWS = {
-    'character': {'portrait': '头像', 'head_front': '头部正面', 'head_side': '头部侧面',
+    'character': {'portrait': '头像正面', 'head_front': '头部正面', 'head_side': '头部侧面',
                   'head_back': '头部背面', 'body_front': '全身正面', 'body_side': '全身侧面',
                   'body_back': '全身背面', 'three_quarter': '四分之三视角'},
     'object': {'main': '外观主图', 'front': '正面', 'side': '侧面', 'back': '背面', 'detail': '细节'}
@@ -387,7 +387,7 @@ class AssetLibrary:
             asset['available_view_tags']=list(profile['view_recipes'])
             asset['production_status']=_version(asset,asset['adopted_version'])['production_status'] if asset.get('adopted_version') else asset_templates.not_reviewed('设计与母版待审阅')
             asset['adopted_design_matches_latest']=bool(asset.get('adopted_version') and asset_templates.blueprint(state,asset,_version(asset,asset['adopted_version']))['design_hash']==asset_templates.blueprint(state,asset,version)['design_hash'])
-        return {'project_id': state['project_id'], 'revision': state['revision'], 'assets': public_assets,
+        return {'project_id': state['project_id'], 'revision': state['revision'], 'assets': public_assets, 'project_style':copy.deepcopy(state.get('project_style') or {}),
             'sources': self._sources(state), 'view_labels': VIEWS,
             'shots': [{'id': s['id'], 'name': s['name'], 'asset_references': s.get('asset_references', [])} for s in state.get('shots', [])],
             'limits': {'max_bytes': MAX_BYTES, 'max_side': MAX_SIDE, 'max_pixels': MAX_PIXELS}, 'generation_enabled': False}
@@ -407,6 +407,7 @@ class AssetLibrary:
         with self.lock, self._connect() as con:
             con.execute('BEGIN'); state = self._load(con, project_id)
             views = [v for a in assets(state) for version in a['versions'] for v in version.get('views', [])]
+            views += [entry['reference'] for entry in state.get('project_style_history',[]) if entry.get('reference')]
             view = next((v for v in views if v['url'] == url), None)
             if view is None:
                 raise ValueError('图片未登记在当前项目素材库')
@@ -469,6 +470,40 @@ class AssetLibrary:
                 raise
 
     def _mutate(self, state, action, payload, created):
+        if action == 'style':
+            current=state.get('project_style') or {}; prompt=_text(payload.get('description',''),'风格描述',2000)
+            if 'style_prompt' in payload:
+                detail=_text(payload.get('style_prompt',''),'详细风格描述',12000)
+                source=payload.get('style_source',{})
+                if not isinstance(source,dict):raise ValueError('风格规范来源无效')
+                if source:
+                    skill=self.root/'skills'/'frame-visual-style'/'SKILL.md';template=skill.parent/'templates'/'style-bible.md'
+                    if source.get('skill_id')!='frame-visual-style' or source.get('skill_version')!='1.0.0' or source.get('skill_sha256')!=hashlib.sha256(skill.read_bytes()).hexdigest() or source.get('template_sha256')!=hashlib.sha256(template.read_bytes()).hexdigest():raise ValueError('风格Skill来源已变化，请重新交接')
+            elif prompt==current.get('description',''):
+                detail=current.get('prompt','');source=copy.deepcopy(current.get('source') or {})
+            else:detail='';source={}
+            mode=payload.get('reference_action','keep'); reference=current.get('reference')
+            if mode=='clear':reference=None
+            elif mode=='select':
+                matches=[v for a in assets(state) for ver in a['versions'] for v in ver.get('views',[]) if v['id']==payload.get('view_id')]
+                if not matches or any(v['sha256']!=matches[0]['sha256'] for v in matches):raise ValueError('请选择当前项目中已有且版本一致的图片')
+                self._checked_view(state['project_id'],matches[0]);reference=copy.deepcopy(matches[0])
+            elif mode=='upload':
+                encoded=payload.get('base64')
+                if not isinstance(encoded,str) or len(encoded)>(MAX_BYTES+2)//3*4:raise ValueError('参考图超过12MB或编码无效')
+                try:data=base64.b64decode(encoded,validate=True)
+                except (ValueError,binascii.Error):raise ValueError('参考图编码无效') from None
+                info=inspect_image(data,_text(payload.get('filename',''),'文件名',180))
+                if info['bytes']>10*1024*1024:raise ValueError('风格参考图超过10MB')
+                image_id=uuid.uuid4().hex
+                file=self._folder(state['project_id'],create=True)/(image_id+'.'+info['extension'])
+                with file.open('xb') as out:created.append(file);out.write(data);file.chmod(0o600)
+                reference={'id':image_id,'url':f"/asset-media/{state['project_id']}/{image_id}.{info['extension']}",'origin':{'type':'style_upload'},**info}
+            elif mode!='keep':raise ValueError('未知风格参考操作')
+            if prompt!=current.get('description','') or reference!=current.get('reference') or detail!=current.get('prompt','') or source!=(current.get('source') or {}):
+                entry={'version':int(current.get('version',0))+1,'description':prompt,'prompt':detail,'source':source,'reference':reference,'created_at':_now()}
+                state['project_style']=entry;state.setdefault('project_style_history',[]).append(copy.deepcopy(entry))
+            return
         if action == 'organize':
             selected = payload.get('names')
             proposed = {s['name']: s for s in suggestions(state)}
@@ -499,7 +534,11 @@ class AssetLibrary:
             if profile.get('input_basis_hash') and profile['input_basis_hash']!=basis:raise ValueError('创作输入已变化，请重新交接设计')
             profile['input_basis_hash']=basis
             if profile!=current.get('design_profile'):
-                version=copy.deepcopy(current);version.update(design_profile=profile,views=[],origin='system_design_draft')
+                old=asset_templates.normalize_profile(current.get('design_profile',{}),asset['kind'])
+                # Adding view recipes alone keeps existing candidates, but never grants a new approval.
+                shared=('subtype','fields','standard_setup','master_plan','input_basis_hash')
+                extend_only=all(old.get(k)==profile.get(k) for k in shared) and all(profile['view_recipes'].get(k)==v for k,v in old.get('view_recipes',{}).items())
+                version=copy.deepcopy(current);version.update(design_profile=profile,views=copy.deepcopy(current.get('views',[])) if extend_only else [],origin='system_design_draft')
                 _append(asset,version)
         elif action == 'edit':
             current = _version(asset); version = copy.deepcopy(current)

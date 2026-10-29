@@ -18,8 +18,6 @@ main>header{height:56px;min-height:56px;padding:0 24px;flex-wrap:nowrap}
 h1{font-size:24px;margin:0;letter-spacing:-.5px}
 .page-heading{display:flex;align-items:center;gap:12px;min-width:0}
 .page-heading h1{min-width:0}.page-heading h1 .muted{font-size:13px;font-weight:400;letter-spacing:0;margin-left:6px}
-.page-help{position:relative;flex-shrink:0}.page-help summary{cursor:pointer;color:var(--muted);font-size:12px;padding:12px 4px;min-height:44px}
-.page-help p{position:absolute;z-index:5;top:100%;left:0;width:min(320px,70vw);margin:0;padding:14px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 30px #0007;font-size:13px}
 .production-status{position:relative;max-width:260px}
 .production-status summary{padding:10px 12px;min-height:44px;cursor:pointer;color:var(--accent);border:1px solid #404d38;border-radius:6px;font-size:12px;white-space:nowrap}
 .production-status.needs-attention summary{color:#efc894;border-color:#80603e}
@@ -102,18 +100,12 @@ body[data-page=shots] .shot-body>details[open]{grid-column:1 / -1}
 body[data-page=shots] .shot-body>.shot-actions{margin:0;align-self:center}
 body[data-page=shots] .asset-ref-summary{align-self:center}
 @media(max-width:700px){.current-project{max-width:180px}.crumb .workspace-home-link,.crumb>span{display:inline}.crumb{min-width:0}.production-status-body{top:130px}body[data-page=shots] .shot-body{gap:8px 10px}}
-/* Overview facts are an instrument strip, not four presentation cards. */
-.stat-help{position:relative;font-size:12px;font-weight:400;flex-shrink:0;margin-left:auto}
-.stat-help summary{cursor:pointer;color:var(--muted);list-style:none;display:grid;place-items:center;min-width:32px;min-height:44px}
-.stat-help summary::-webkit-details-marker{display:none}
-.stat-help p{position:absolute;z-index:8;top:100%;right:0;width:240px;max-width:75vw;padding:12px;margin:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 24px #0009}
 body[data-page=overview] .stats{gap:0;margin-bottom:16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);grid-template-columns:1fr 1.15fr 1.4fr .85fr}
 body[data-page=overview] .stat{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:0;border-right:1px solid var(--line);border-radius:0;background:transparent;padding:6px 14px;min-width:0;min-height:64px}
 body[data-page=overview] .stat:last-child{border-right:0}
 body[data-page=overview] .stat label{font-size:12px}
 body[data-page=overview] .stat strong{display:inline;font-size:22px;line-height:1.3;font-weight:550;margin:0;white-space:nowrap}
 body[data-page=overview] .stat strong small{font-size:12px}
-body[data-page=overview] .stat-help{margin-left:auto}
 body[data-page=overview] .panel{padding:18px;margin-bottom:16px}
 body[data-page=overview] .grid{gap:16px}
 body[data-page=overview] .hero{min-height:0;padding:18px}
@@ -122,7 +114,7 @@ body[data-page=overview] .hero:after{font-size:64px;bottom:-6px}
 body[data-page=overview] .panel .notice{margin-bottom:8px}
 body[data-page=overview] .panel>a.button{margin-top:8px!important}
 @media(max-width:1100px){body[data-page=overview] .stats{grid-template-columns:repeat(2,minmax(0,1fr))}body[data-page=overview] .stat:nth-child(2){border-right:0}body[data-page=overview] .stat:nth-child(-n+2){border-bottom:1px solid var(--line)}}
-@media(max-width:700px){body[data-page=overview] .stat{padding:6px 10px;gap:4px;min-height:64px}body[data-page=overview] .stat label{font-size:11px}body[data-page=overview] .stat strong{font-size:18px}.stat-help p{position:fixed;top:200px;left:12px;right:12px;width:auto;max-width:none}body[data-page=overview] .panel{padding:14px}body[data-page=overview] .panel-head{gap:8px;flex-wrap:wrap}body[data-page=overview] .hero{padding:14px}.current-project{max-width:160px}}
+@media(max-width:700px){body[data-page=overview] .stat{padding:6px 10px;gap:4px;min-height:64px}body[data-page=overview] .stat label{font-size:11px}body[data-page=overview] .stat strong{font-size:18px}body[data-page=overview] .panel{padding:14px}body[data-page=overview] .panel-head{gap:8px;flex-wrap:wrap}body[data-page=overview] .hero{padding:14px}.current-project{max-width:160px}}
 @media(min-width:701px){
  .workspace-sidebar{width:136px}
  main{margin-left:136px}
@@ -194,3 +186,9 @@ body[data-page=script] main>footer{display:none}
 .asset-detail-dialog h2{font-size:19px}
 .asset-detail-dialog .asset-design{margin-top:16px}
 .asset-detail-dialog [data-body]>p{line-height:1.8}
+
+/* Persistent workspace navigation is an explicit button. */
+.sidebar-project .workspace-home-link.button{display:flex;align-items:center;justify-content:center;min-height:44px;width:100%;padding:8px 12px;border:1px solid #3d4345;border-radius:6px;background:#24282b;color:var(--text);font-size:13px;text-decoration:none}
+.sidebar-project .workspace-home-link.button:hover{background:#353b3e;border-color:#6b8054}
+.sidebar-project .workspace-home-link.button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:700px){.sidebar-project .workspace-home-link.button{width:auto;min-width:100px}}

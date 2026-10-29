@@ -150,6 +150,7 @@ class RepairService:
         # Early local gates before read-only remote inspection; repeat under transaction.
         with self.transaction() as con:
             state = self.state(con, project_id, revision)
+            if state.get('project_style'):raise ValueError('本机局部修复暂不支持项目风格，请使用已支持的云端编辑')
             self.gate(state, shot_id, source_url)
         source = assets.asset(self.root, project_id, source_url); mask = assets.asset(self.root, project_id, mask_url)
         assets.inputs(source, mask)

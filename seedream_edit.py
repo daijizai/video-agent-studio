@@ -77,12 +77,17 @@ def bbox(region,width,height):
     if coords[0]>=coords[2] or coords[1]>=coords[3]:raise ValueError('框选区域过小')
     return coords
 
-def payload_for(data,info,region,description):
+def payload_for(data,info,region,description,style=None,style_data=None,style_mime=None):
     if not isinstance(description,str) or not 1<=len(description.strip())<=1500:raise ValueError('请描述要修改的内容')
     if '<' in description or '>' in description:raise ValueError('修改描述不能包含坐标或结构标记')
     coords=bbox(region,info['width'],info['height'])
     prompt='编辑图 1 <bbox>'+ ' '.join(map(str,coords))+'</bbox> 区域：'+description.strip()+'。尽量保持其余内容、构图和宽高比。输出一幅完整静态图片，不进行图层拆分。'
-    return {'model':MODEL,'prompt':prompt,'image':'data:image/png;base64,'+base64.b64encode(data).decode('ascii'),
+    if style and (style.get('prompt') or style.get('description')):prompt+=' 项目统一视觉风格：'+(style.get('prompt') or style['description'])
+    image='data:image/png;base64,'+base64.b64encode(data).decode('ascii')
+    if style_data:
+        prompt+=' 图2仅参考色彩、光线与画面质感，不复制图2中的人物、物品或构图。'
+        image=[image,'data:'+style_mime+';base64,'+base64.b64encode(style_data).decode('ascii')]
+    return {'model':MODEL,'prompt':prompt,'image':image,
             'size':'2K','response_format':'url','output_format':'png','watermark':True,'stream':False,'layer_decomposition':False}
 
 def output_url(value):
@@ -126,7 +131,13 @@ class SeedreamEditService(RepairService):
         with self.transaction() as con:
             state=self.state(con,project_id,revision);shot,data,info=self.gate(state,shot_id,source_url)
             if any(t.get('request_id')==request_id or t.get('status') in LIVE|{'reserved'} for t in state.get('image_tasks',[])):raise ValueError('已有原请求或在途图片任务，禁止重提')
-            payload=payload_for(data,info,region,description)
+            style=copy.deepcopy(state.get('project_style') or {});style_data=None;style_mime=None
+            if style.get('reference'):
+                import asset_library
+                style_data,style_info=asset_library.AssetLibrary(self.root,self.database,self.lock)._checked_view(project_id,style['reference'])
+                if style_info['bytes']>10*1024*1024 or min(style_info['width'],style_info['height'])<15 or max(style_info['width'],style_info['height'])>6000:raise ValueError('风格参考图不满足模型尺寸或10MB限制')
+                style_mime=style_info['mime']
+            payload=payload_for(data,info,region,description,style,style_data,style_mime)
             # Validate local credentials before creating an intent; never persist auth headers.
             ark_provider.headers()
             authorization_id=self.authorize(state,self.database,'image',PRICE,MODEL,shot_id=shot_id)
@@ -134,7 +145,7 @@ class SeedreamEditService(RepairService):
             parameters={k:v for k,v in payload.items() if k!='image'}
             task={'id':task_id,'project_id':project_id,'shot_id':shot_id,'name':shot['name'],'provider':PROVIDER,
                   'kind':'image','cost_category':'image','request_id':request_id,'status':'submitting','provider_task_id':None,
-                  'request_model':MODEL,'request_parameters':parameters,'request_sha256':comfy_templates.digest(payload),
+                  'request_model':MODEL,'request_parameters':parameters,'request_sha256':comfy_templates.digest(payload),'style_snapshot':style,
                   'source_url':source_url,'archived_source':archived,'source_sha256':info['sha256'],'source_info':info,
                   'region':copy.deepcopy(region),'normalized_bbox':bbox(region,info['width'],info['height']),
                   'description':description.strip(),'content_revision':state['revision'],
@@ -157,7 +168,12 @@ class SeedreamEditService(RepairService):
             if self.authorize(scoped,self.database,'image',PRICE,MODEL,shot_id=task['shot_id'])!=task['authorization_id']:raise ValueError('授权版本已变化')
             source,info=read_image(self.root,project_id,task['archived_source'])
             if info['sha256']!=task['source_sha256']:raise ValueError('归档原图已变化')
-            payload=payload_for(source,info,task['region'],task['description'])
+            style=task.get('style_snapshot') or {};style_data=None;style_mime=None
+            if style!=(state.get('project_style') or {}):raise ValueError('项目风格已变化，请重新预览')
+            if style.get('reference'):
+                import asset_library
+                style_data,style_info=asset_library.AssetLibrary(self.root,self.database,self.lock)._checked_view(project_id,style['reference']);style_mime=style_info['mime']
+            payload=payload_for(source,info,task['region'],task['description'],style,style_data,style_mime)
             if comfy_templates.digest(payload)!=task['request_sha256'] or payload['model']!=task['request_model']:raise ValueError('持久请求已变化')
             task['status']='uploading';self.save(con,state)
         # One synchronous POST only. No database/global lock held during remote execution.

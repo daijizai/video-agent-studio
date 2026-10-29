@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory() as tmp:
             switch_project(page,1,'script');page.get_by_label('剧本正文',exact=True).wait_for();page.wait_for_function("document.querySelector('#script').value.includes('雨夜')")
             assert page.get_by_label('剧本正文',exact=True).input_value()!='Only belongs to project B'
             page.get_by_role('link',name='06 工具与设置').click();page.get_by_role('button',name='安全保存到仓库外',exact=True).wait_for()
-            assert page.locator('#provider-choice').input_value()=='wan3-prime'
+            assert page.locator('#provider-choice').input_value()=='seedance25'
             page.get_by_label('保存当前供应商密钥（只写，不回显）').fill('fake-browser-test-key-never-real')
             page.get_by_role('button',name='安全保存到仓库外',exact=True).click();page.get_by_text('已配置 · 本项目未调用',exact=True).first.wait_for()
             assert page.locator('#provider-key').input_value()==''

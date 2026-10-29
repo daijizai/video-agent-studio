@@ -1,6 +1,6 @@
 # 当前默认模型与报价边界
 
-2026-10-29，用户明确指定所有新图片默认使用 **Seedream 5.0 Flash**（`doubao-seedream-5-0-flash-260915`）。这指Seedream，不是Stable Diffusion；不需要下载SD模型。角色、物品、分镜图与云端局部编辑统一以该模型作为默认，Qwen仍可显式选择。视频默认仍为Wan3.0-Video-Prime。
+2026-10-29，用户明确指定所有新图片默认使用 **Seedream 5.0 Flash**（`doubao-seedream-5-0-flash-260915`）。这指Seedream，不是Stable Diffusion；不需要下载SD模型。角色、物品、分镜图与云端局部编辑统一以该模型作为默认，Qwen仍可显式选择。视频默认使用字节 Seedance 2.5（`doubao-seedance-2-5-260628`），2026-10-29由用户明确指定。
 
 Seedream当前适配每次一张2K图片，预占¥0.12/张；实际结算单独记录，免费额度不提前抵扣。当前项目已有提示词设计与历史请求不因默认变化而改写；执行预览按新模型重新生成。模型切换不恢复暂停，也不自动增加任何项目预算或生成图片。
 
@@ -15,4 +15,4 @@ Seedream当前适配每次一张2K图片，预占¥0.12/张；实际结算单独
 
 新项目默认值不自动分配金额授权。预算只绑定具体项目/数据库，图片和视频不互借。用户暂停后，预算和余额保留，切模型/改预算不恢复执行。当前原始首版为用户阶段性接受，未据此宣称逐字对白、同一声线和每项道具指标客观完美；不再为新增检查发起付费请求。
 
-CLI：`provider configure --provider wan3-prime --image-model doubao-seedream-5-0-flash-260915`。实际分辨率和声音以项目持久化配置/请求快照为准，默认选择不覆盖已提交任务。
+CLI：`provider configure --provider seedance25 --image-model doubao-seedream-5-0-flash-260915`。实际分辨率和声音以项目持久化配置/请求快照为准，默认选择不覆盖已提交任务。

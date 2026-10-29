@@ -33,7 +33,7 @@ def init():
         c.execute('CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, current_project INTEGER)')
         c.execute('INSERT OR IGNORE INTO workspace VALUES (1,1)')
         if not c.execute('SELECT 1 FROM state').fetchone():
-            s={'title':'雾港来信','episode':'EP 01 · 消失的第七分钟','demo':True,'target_duration':30,'budget':120,'script':'雨夜，旧港口的钟楼突然停在 23:53。\n\n林雾收到一封来自七分钟后的语音。电话里，是她自己的声音：不要登上最后一班渡轮。\n\n陈渡在码头等她。他手中的船票，印着明天的日期。','continuity':'林雾始终佩戴银色旧手表；陈渡不知道语音的来源。港口时间停在 23:53。','characters':[{'id':'lin','name':'林雾','role':'主角 / 调查记者','version':1,'notes':'28 岁，黑色齐肩短发，灰色风衣，左腕银色旧手表。冷静、敏锐，右眉有细小伤疤。','color':'#729c9b'},{'id':'chen','name':'陈渡','role':'主角 / 渡轮驾驶员','version':1,'notes':'32 岁，深蓝工作夹克，短发，左手旧烧伤。说话克制，始终随身携带黄铜钥匙。','color':'#ac9071'}],'shots':[],'tasks':[],'settings':{'comfy_url':'','workflow':'','provider':'wan3-prime','resolution':'720p','audio':False,'image_model':image_provider.DEFAULT_IMAGE_MODEL},'events':['已载入示例策划内容；没有生成媒体或产生费用。']}
+            s={'title':'雾港来信','episode':'EP 01 · 消失的第七分钟','demo':True,'target_duration':30,'budget':120,'script':'雨夜，旧港口的钟楼突然停在 23:53。\n\n林雾收到一封来自七分钟后的语音。电话里，是她自己的声音：不要登上最后一班渡轮。\n\n陈渡在码头等她。他手中的船票，印着明天的日期。','continuity':'林雾始终佩戴银色旧手表；陈渡不知道语音的来源。港口时间停在 23:53。','characters':[{'id':'lin','name':'林雾','role':'主角 / 调查记者','version':1,'notes':'28 岁，黑色齐肩短发，灰色风衣，左腕银色旧手表。冷静、敏锐，右眉有细小伤疤。','color':'#729c9b'},{'id':'chen','name':'陈渡','role':'主角 / 渡轮驾驶员','version':1,'notes':'32 岁，深蓝工作夹克，短发，左手旧烧伤。说话克制，始终随身携带黄铜钥匙。','color':'#ac9071'}],'shots':[],'tasks':[],'settings':{'comfy_url':'','workflow':'','provider':'seedance25','resolution':'720p','audio':False,'image_model':image_provider.DEFAULT_IMAGE_MODEL},'events':['已载入示例策划内容；没有生成媒体或产生费用。']}
             for i,(name,frame,duration,prompt) in enumerate([('雾中的钟楼','远景 · 缓慢推进',8,'雨夜的旧港口，钟楼停在23:53，低饱和青绿色，电影光影'),('七分钟后的来电','近景 · 固定机位',6,'林雾站在雨棚下看手机，灰风衣，银色旧手表，冷光映在脸上'),('最后一班渡轮','全景 · 横向跟随',8,'陈渡站在渡轮入口，深蓝工作夹克，手持纸船票，海雾'),('明天的船票','特写 · 缓慢拉近',5,'湿润的纸船票与黄铜钥匙，背景虚化的港口灯光')]):
                 s['shots'].append({'id':str(uuid.uuid4()),'name':name,'frame':frame,'duration':duration,'prompt':prompt,'approved':False,'status':'待确认','estimate':8,'review':'','asset':''})
             c.execute('INSERT INTO state VALUES (1,?)',(json.dumps(s,ensure_ascii=False),))
@@ -102,7 +102,7 @@ def create_project(title):
     title=str(title).strip()
     if not title or len(title)>80:raise ValueError('项目名称须为 1–80 个字符')
     s={'title':title,'episode':'','demo':False,'target_duration':120,'budget':0,'script':'','continuity':'','characters':[],'shots':[],'tasks':[],'image_tasks':[],
-       'settings':{'comfy_url':'','workflow':'','provider':'wan3-prime','resolution':'720p','image_model':image_provider.DEFAULT_IMAGE_MODEL,'audio':False},'events':['新项目已创建；尚无生成任务。']}
+       'settings':{'comfy_url':'','workflow':'','provider':'seedance25','resolution':'720p','image_model':image_provider.DEFAULT_IMAGE_MODEL,'audio':False},'events':['新项目已创建；尚无生成任务。']}
     with db() as c:
         result=c.execute('INSERT INTO state(body) VALUES (?)',(json.dumps(secret_store.redact(s),ensure_ascii=False),));pid=result.lastrowid
         c.execute('UPDATE workspace SET current_project=? WHERE id=1',(pid,))
@@ -289,7 +289,7 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if self.headers.get('Origin') and self.headers['Origin'] != 'http://'+self.headers.get('Host',''):raise ValueError('拒绝跨站写入')
             n=int(self.headers.get('Content-Length','0'))
-            if n<0 or n>(28*1024*1024 if self.path=='/api/comfy/mask' else 17*1024*1024 if self.path=='/api/assets/upload' else 2000000):raise ValueError('请求过大')
+            if n<0 or n>(28*1024*1024 if self.path=='/api/comfy/mask' else 17*1024*1024 if self.path in ('/api/assets/upload','/api/assets/style') else 2000000):raise ValueError('请求过大')
             p=json.loads(self.rfile.read(n) or b'{}')
             if not isinstance(p,dict):raise ValueError('请求须为对象')
             if self.path.startswith('/api/assets/'):
@@ -374,6 +374,7 @@ class Handler(SimpleHTTPRequestHandler):
                     if previous and not p.get('redo'):raise ValueError('重生成须明确指定redo；历史图像保留')
                     provider=image_provider.for_model(shot.get('image_model') or s['settings'].get('image_model'));prepared=asset_generation.prepare_storyboard(material_service(),{**shot,'_material_project_id':s['project_id']},s['settings']);provider.headers()
                     task={'id':str(uuid.uuid4()),'submitted_at':datetime.now(timezone.utc).isoformat(),'submitted_epoch':time.time(),'shot_id':shot['id'],'name':shot['name'],'provider_task_id':None,'status':'submitting','estimate':prepared['estimated_cny'],'request':prepared.get('request_manifest',prepared['payload'])}
+                    if prepared.get('style_snapshot'):task['style_snapshot']=prepared['style_snapshot'];task['request_sha256']=prepared['request_sha256']
                     if prepared.get('material_reference_snapshot'):
                         task['material_reference_snapshot']=prepared['material_reference_snapshot'];task['request_sha256']=prepared['request_sha256']
                     task['provider']=prepared['provider']
@@ -433,7 +434,7 @@ class Handler(SimpleHTTPRequestHandler):
                             if local:shot['storyboard_local']=local
                 elif action=='/api/provider/preview':
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
-                    return self.reply(providers.Provider(s['settings'].get('provider','wan3-prime')).prepare(shot,s['settings']))
+                    return self.reply(providers.Provider(s['settings'].get('provider','seedance25')).prepare(shot,s['settings']))
                 elif action=='/api/provider/submit':
                     if not generation_scope.active(s['project_id'],DATA/'studio.db'):raise ValueError('付费生成未授权，当前仅允许零请求预览')
                     shot=next(x for x in s['shots'] if x['id']==p['shot_id'])
@@ -441,7 +442,7 @@ class Handler(SimpleHTTPRequestHandler):
                     previous=[t for t in s['tasks'] if t.get('shot_id')==shot['id']]
                     if any(t['status'] in ('submitting','queued','running','unknown') for t in previous):raise ValueError('该镜头有在途或未知任务，禁止重复提交')
                     if previous and not p.get('redo'):raise ValueError('已有终态任务；语义上需要重做时明确指定redo，仍检查本类别预算')
-                    provider=providers.Provider(s['settings'].get('provider','wan3-prime'))
+                    provider=providers.Provider(s['settings'].get('provider','seedance25'))
                     if provider.id=='seedance25':
                         import ark_provider
                         ark_provider.require_reference_approval(shot)
@@ -483,12 +484,16 @@ class Handler(SimpleHTTPRequestHandler):
                     if reserved+float(shot['estimate'])>float(s['budget']):raise ValueError('预占金额将超过本集预算')
                     workflow=json.loads(s['settings']['workflow'])
                     if not isinstance(workflow,dict) or not workflow:raise ValueError('请导入 ComfyUI API 格式工作流')
+                    project_style=s.get('project_style') or {}
+                    if project_style.get('reference'):raise ValueError('该本机工作流暂不支持项目风格参考图，请使用已支持的图片生成方式')
+                    if (project_style.get('prompt') or project_style.get('description')) and not any(n.get('class_type')=='CLIPTextEncode' and '{{prompt}}' in n.get('inputs',{}).get('text','') for n in workflow.values()):raise ValueError('该工作流缺少可绑定项目风格的提示入口')
                     # Hard gate: arbitrary workflows can call paid nodes. V1 permits a small local-only allowlist.
                     allowed={'CheckpointLoaderSimple','CLIPTextEncode','EmptyLatentImage','KSampler','VAEDecode','SaveImage','LoadImage','PreviewImage'}
                     if any(node.get('class_type') not in allowed for node in workflow.values()):raise ValueError('工作流含未审计节点；第一版禁止外部付费与自定义节点')
                     for node in workflow.values():
-                        if node.get('class_type')=='CLIPTextEncode':node['inputs']['text']=node['inputs'].get('text','').replace('{{prompt}}',shot['prompt'])
+                        if node.get('class_type')=='CLIPTextEncode':node['inputs']['text']=node['inputs'].get('text','').replace('{{prompt}}',shot['prompt']+('\n项目统一视觉风格：'+(project_style.get('prompt') or project_style['description']) if project_style.get('prompt') or project_style.get('description') else ''))
                     task={'id':str(uuid.uuid4()),'shot_id':shot['id'],'name':shot['name'],'provider':'ComfyUI / 本机','provider_task_id':None,'status':'submitting','estimate':float(shot['estimate'])}
+                    if project_style:task['style_snapshot']=copy.deepcopy(project_style)
                     task['content_revision']=s['revision'];task['content_snapshot']=content_snapshot(s,shot);task['request']=copy.deepcopy(workflow)
                     s['tasks'].append(task);save(s) # Persist intent before network; unknown outcomes never auto-retry.
                     try:

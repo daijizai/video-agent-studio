@@ -253,7 +253,9 @@ def review_status(state,asset,version):
     plan=normalize_profile(version.get('design_profile',{}),asset['kind'])['master_plan']
     identity=plan.get('identity_tag');structure=plan.get('structure_tag')
     base=bool(identity in tags and structure in tags)
-    multi=bool(asset['kind']=='character' and all(t in tags for t in ('body_front','body_side','body_back')))
+    body_complete=all(t in tags for t in ('body_front','body_side','body_back'))
+    head_complete=(not plan.get('has_head')) or (('portrait' in tags or 'head_front' in tags) and all(t in tags for t in ('head_side','head_back')))
+    multi=bool(asset['kind']=='character' and body_complete and head_complete)
     eligible=[]
     for tag in tags:
         req=recipe(asset['kind'],tag,version.get('views',[{}])[0].get('origin',{}).get('model','qwen-image-3.0-pro'),version['design_profile'])['template']['requires']

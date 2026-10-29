@@ -54,8 +54,8 @@ def prepare_storyboard(asset_service, shot, settings):
     model=shot.get('image_model') or settings.get('image_model') or image_provider.DEFAULT_IMAGE_MODEL
     provider=image_provider.for_model(model)
     refs=shot.get('asset_references') or []
-    if not refs:return provider.prepare(shot,settings)
     project_id=shot.get('_material_project_id')
+    if not refs and type(project_id) is not int:return provider.prepare(shot,settings)
     if type(project_id) is not int:raise ValueError('素材参考缺少项目绑定')
     with asset_service.lock,asset_service._connect() as con:
         con.execute('BEGIN');state=asset_service._load(con,project_id)
@@ -68,6 +68,8 @@ def prepare_storyboard(asset_service, shot, settings):
             expected=asset_templates.review_record(state,asset,pinned)
             if ref.get('production_review')!=expected:
                 raise ValueError('素材设计或制作配方已变化，请按当前规范审阅并显式更新镜头引用；历史请求不改写')
+    style=copy.deepcopy(state.get('project_style') or {})
+    if not refs and not style:return provider.prepare(shot,settings)
     inputs=[];replacements={}
     for ref in refs:
         for view in ref['views']:
@@ -79,6 +81,20 @@ def prepare_storyboard(asset_service, shot, settings):
             replacements[placeholder]='data:'+info['mime']+';base64,'+base64.b64encode(data).decode()
             inputs.append({'asset_id':ref['asset_id'],'version':ref['version'],'view_id':view['id'],'sha256':info['sha256'],'url':view['url']})
     spec=copy.deepcopy(shot)
+    if style.get('prompt') or style.get('description'):spec['image_prompt']=(spec.get('image_prompt') or spec.get('prompt') or '')+'\n项目统一视觉风格：'+(style.get('prompt') or style['description'])
+    style_ref=style.get('reference')
+    if style_ref:
+        data,info=asset_service._checked_view(project_id,style_ref)
+        minimum,maximum=(384,3072) if model.startswith('qwen') else (15,6000)
+        if info['bytes']>10*1024*1024 or min(info['width'],info['height'])<minimum or max(info['width'],info['height'])>maximum:raise ValueError('风格参考图不满足所选模型的尺寸或10MB限制')
+        matching=next((i for i,item in enumerate(inputs) if item['sha256']==info['sha256']),None)
+        if matching is None:
+            marker='https://style-reference.invalid/'+info['sha256']+'.'+info['extension']
+            replacements[marker]='data:'+info['mime']+';base64,'+base64.b64encode(data).decode()
+            instruction='最后一张参考图仅参考色彩、光线和画面质感，不复制其中的人物、物品或构图。'
+        else:
+            instruction='第%d张参考图同时作为已绑定主体和视觉风格参考；只保持该主体本身及色彩光线，不复制无关背景或构图。'%(len(shot.get('reference_images') or [])+matching+1)
+        spec['image_prompt']=(spec.get('image_prompt') or spec.get('prompt') or '')+'\n'+instruction
     spec['reference_images']=list(shot.get('reference_images') or [])+list(replacements)
     prepared=provider.prepare(spec,settings)
     def replace(value,manifest=False):
@@ -90,6 +106,7 @@ def prepare_storyboard(asset_service, shot, settings):
     prepared['request_manifest']=replace(prepared['payload'],True)
     prepared['payload']=replace(prepared['payload'])
     prepared['material_reference_snapshot']=inputs
+    prepared['style_snapshot']=style
     prepared['request_sha256']=digest(prepared['payload'])
     return prepared
 
@@ -158,9 +175,22 @@ class AssetGeneration:
         bundle['reference_review']=copy.deepcopy(next((r for r in reversed(asset.get('production_reviews',[])) if references and r.get('asset_version')==item['reference_version']),None))
         bundle['contract_hash']=digest(bundle)
         name=version['name'];label=library.VIEWS[asset['kind']][tag]
+        style=copy.deepcopy(state.get('project_style') or {})
+        bundle['project_style']=style
         description=asset_templates.render_prompt(bundle)
+        if style.get('prompt') or style.get('description'):description+='\n项目统一视觉风格（优先用于画风、光线和材质，不改变主体身份）：'+(style.get('prompt') or style['description'])
         if references:description+='\n仅使用绑定的已采用身份/全身/物品母版；保持同一外观，不重新设计。'
         markers = ['https://material-reference.invalid/'+v['sha256']+'.'+v['extension'] for v in references]
+        style_ref=style.get('reference')
+        if style_ref:
+            _,info=self.lib._checked_view(state['project_id'],style_ref)
+            minimum,maximum=(384,3072) if model.startswith('qwen') else (15,6000)
+            if info['bytes']>10*1024*1024 or min(info['width'],info['height'])<minimum or max(info['width'],info['height'])>maximum:raise ValueError('风格参考图不满足所选模型的尺寸或10MB限制')
+            matching=next((i for i,item in enumerate(references) if item['sha256']==info['sha256']),None)
+            if matching is None:
+                markers.append('https://style-reference.invalid/'+info['sha256']+'.'+info['extension'])
+                description+='\n最后一张参考图仅参考色彩、光线和画面质感，不复制其中的人物、物品或构图。'
+            else:description+='\n第%d张参考图同时作为该主体的已采用母版和项目风格参考；不要复制无关背景或构图。'%(matching+1)
         spec = {'image_prompt': description, 'reference_images': markers, 'image_model': model,
                 'image_size':bundle['template']['size']}
         prepared = self.provider_factory(model).prepare(spec, {'image_model': model})
@@ -170,15 +200,14 @@ class AssetGeneration:
         bundle.pop('contract_hash');bundle['contract_hash']=digest(bundle)
         def replace(value):
             if isinstance(value, str) and value in markers:
-                view = references[markers.index(value)]
-                return 'material:sha256:'+view['sha256']
+                return ('style:sha256:' if value.startswith('https://style-reference.invalid/') else 'material:sha256:')+value.rsplit('/',1)[1].split('.')[0]
             if isinstance(value, dict):return {k:replace(v) for k,v in value.items()}
             if isinstance(value, list):return [replace(v) for v in value]
             return value
         return {'asset_id': asset['id'], 'asset_kind': asset['kind'], 'asset_version': version['version'],
             'asset_snapshot': copy.deepcopy(version), 'target_view': tag, 'view_label': label,
             'name': name+' · '+label, 'model': model, 'provider': prepared['provider'],
-            'request': replace(payload), 'reference_inputs': references, 'estimate': prepared['estimated_cny'],'production_contract':bundle,
+            'request': replace(payload), 'reference_inputs': references, 'style_reference':style_ref, 'estimate': prepared['estimated_cny'],'production_contract':bundle,
             'is_identity_master':tag==bundle['blueprint']['master_plan']['identity_tag']}
 
     def _plan(self, state, items, model):
@@ -199,11 +228,14 @@ class AssetGeneration:
 
     def preview(self, project_id, items, model):
         state = self._state(project_id); plan = self._plan(state, items, model)
+        note='系统设计草案待审阅；每项1张独立图片。先采用身份母版，再建立并采用全身正面，之后才补独立侧背视图。预估不含自动重试。'
+        if model=='doubao-seedream-5-0-flash-260915' and any(len(str(j['request'].get('prompt','')))>300 for j in plan['jobs']):
+            note+=' 本次提示较长；Seedream官方建议中文约300字以内，过长可能使部分细节被忽略。这是建议，不会自动删减或阻止预览。'
         return {'project_id': project_id, 'revision': state['revision'], 'fingerprint': plan['fingerprint'],
             'estimated_cny': plan['estimated_cny'], 'network_called': False,
             'items': [{k:j[k] for k in ('asset_id','asset_kind','asset_version','target_view','view_label','name','estimate')} for j in plan['jobs']],
             'designs':[{'asset_id':j['asset_id'],'asset_version':j['asset_version'],**asset_templates.public_design(j['production_contract']['blueprint'])} for j in plan['jobs']],
-            'note':'系统设计草案待审阅；每项1张独立图片。先采用身份母版，再建立并采用全身正面，之后才补独立侧背视图。预估不含自动重试。'}
+            'note':note}
 
     def _authorize(self, state, estimate, model):
         pid = state['project_id']
@@ -261,8 +293,11 @@ class AssetGeneration:
         for view in task['reference_inputs']:
             data, info = self.lib._checked_view(project_id, view)
             data_urls['material:sha256:'+info['sha256']] = 'data:'+info['mime']+';base64,'+base64.b64encode(data).decode()
+        if task.get('style_reference'):
+            data,info=self.lib._checked_view(project_id,task['style_reference'])
+            data_urls['style:sha256:'+info['sha256']]='data:'+info['mime']+';base64,'+base64.b64encode(data).decode()
         def replace(value):
-            if isinstance(value, str) and value.startswith('material:sha256:'):
+            if isinstance(value, str) and value.startswith(('material:sha256:','style:sha256:')):
                 if value not in data_urls:raise ValueError('母版引用记录不完整')
                 return data_urls[value]
             if isinstance(value, dict):return {k:replace(v) for k,v in value.items()}
@@ -274,6 +309,7 @@ class AssetGeneration:
     def _validate_reserved_contract(self,state,task):
         saved=task.get('production_contract')
         if not saved:raise ValueError('旧计划没有当前素材制作配方，请取消未提交项并重新预览')
+        if (saved.get('project_style') or {})!=(state.get('project_style') or {}):raise ValueError('项目风格已变化，请重新预览')
         asset=next(a for a in library.assets(state) if a['id']==task['asset_id'])
         latest=library._version(asset)
         if asset_templates.blueprint(state,asset,latest)['design_hash']!=saved['blueprint']['design_hash']:

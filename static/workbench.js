@@ -1,9 +1,9 @@
 /* Local display preferences only; never changes project or execution state. */
 (() => {
   document.addEventListener('click',event=>{
-    document.querySelectorAll('.page-help[open],.production-status[open],.stat-help[open]').forEach(details=>{if(!details.contains(event.target))details.open=false});
+    document.querySelectorAll('.production-status[open]').forEach(details=>{if(!details.contains(event.target))details.open=false});
   });
-  document.addEventListener('keydown',event=>{if(event.key==='Escape')document.querySelectorAll('.page-help[open],.production-status[open],.stat-help[open]').forEach(details=>details.open=false)});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape')document.querySelectorAll('.production-status[open]').forEach(details=>details.open=false)});
 })();
 
 /* Keep shot cards stable while editing their original, already-bound controls. */

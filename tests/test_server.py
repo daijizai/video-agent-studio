@@ -62,7 +62,7 @@ class StudioTests(unittest.TestCase):
         self.post('projects/switch',{'project_id':pid});server.init()
         self.assertEqual(server.current_project(),pid);self.assertEqual(server.read()['budget'],12)
     def test_provider_http_preview_and_paid_gate(self):
-        s=server.read();s['shots'][0]['reference_images']=['https://example.com/role.png'];s['shots'][0]['duration']=5;server.save(s)
+        s=server.read();s['settings']['provider']='wan3-prime';s['shots'][0]['reference_images']=['https://example.com/role.png'];s['shots'][0]['duration']=5;server.save(s)
         with patch('providers.transport',side_effect=AssertionError('network forbidden')):
             code,result=self.post('provider/preview',{'shot_id':s['shots'][0]['id']})
             self.assertEqual(code,200);self.assertFalse(result['network_called']);self.assertEqual(result['estimated_cny'],4.5)

@@ -13,5 +13,7 @@
 
 ## Creative workflows
 - Read `skills/frame-screenplay/SKILL.md` for scripts/shots, `skills/frame-character-assets/SKILL.md` for character designs/views, and `skills/frame-object-assets/SKILL.md` for object designs/views. Load only relevant templates.
+- For character standard-view plans, also read `skills/frame-character-assets/templates/six-views.md`: plan head and full-body front/side/back as separate images, while preserving the user's approval and budget gates.
+- For project-wide visual style and reference-image design, read `skills/frame-visual-style/SKILL.md`; preserve the detailed style bible and record the model-specific request without silently truncating it.
 - Keep reusable creative methods in these versioned Skills. Codex applies them to project material; Python/JS enforces data and execution contracts. Do not move budget, approval, credential or path enforcement out of code.
 - Ordinary UI shows stories, designs, media, versions, costs and feedback. Machine prompts and consistency records remain backstage; hiding them must not delete history or silently change requests.

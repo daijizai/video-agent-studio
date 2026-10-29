@@ -9,8 +9,8 @@ import urllib.parse
 from decimal import Decimal, ROUND_UP
 
 CATALOG = {
-    'seedance25': {'label':'火山方舟 Seedance 2.5','model':'doubao-seedance-2-5-260628','key_env':'ARK_API_KEY','reference_limit':30},
-    'wan3-prime': {'label':'千问AI Wan3.0-Video-Prime · 默认','model':'wan3.0-video-prime','key_env':'WAN3_API_KEY','reference_limit':10},
+    'seedance25': {'label':'字节 Seedance 2.5 · 默认','model':'doubao-seedance-2-5-260628','key_env':'ARK_API_KEY','reference_limit':30},
+    'wan3-prime': {'label':'千问AI Wan3.0-Video-Prime · 可选','model':'wan3.0-video-prime','key_env':'WAN3_API_KEY','reference_limit':10},
     'wan3': {'label':'千问AI Wan3.0-Video · 主用','model':'wan3.0-video','key_env':'WAN3_API_KEY','reference_limit':10},
     'wan': {'label': '阿里 Wan 2.6 R2V Flash', 'model': 'wan2.6-r2v-flash', 'key_env': 'DASHSCOPE_API_KEY', 'reference_limit': 5},
     'seedance': {'label': '字节 Seedance 2.0 Mini', 'model': 'doubao-seedance-2-0-mini-260615', 'key_env': 'ARK_API_KEY', 'reference_limit': 9},

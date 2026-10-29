@@ -121,6 +121,8 @@ class HandoffTests(AssetFixture):
         refs=contracts.select_reference_views(self.state(),role,v,'body_back','qwen-image-3.0-pro',5,None)
         self.assertEqual([r['tag'] for r in refs],['portrait','body_front'])
         role=self.upload(role,'body_side');role=self.upload(role,'body_back');self.action('adopt',asset_id=role['id'],version=7)
+        role=self.service.catalog(1)['assets'][0];self.assertFalse(contracts.review_status(self.state(),role,library._version(role))['reusable'])
+        role=self.upload(role,'head_side');role=self.upload(role,'head_back');self.action('adopt',asset_id=role['id'],version=9)
         role=self.service.catalog(1)['assets'][0];self.assertTrue(contracts.review_status(self.state(),role,library._version(role))['reusable'])
 
     def test_recipe_or_skill_change_needs_review_without_mutating_history(self):
