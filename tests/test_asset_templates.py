@@ -110,7 +110,7 @@ class HandoffTests(AssetFixture):
         self.assertTrue(self.service.catalog(1)['assets'][0]['design_summary']['ready'])
 
     def test_body_side_requires_both_reviewed_masters_not_one_identity_photo(self):
-        role=self.ready_role();role=self.upload(role,'portrait');self.action('adopt',asset_id=role['id'],version=4)
+        role=self.service.catalog(1)['assets'][0];role=self.install_profile(role['id'],handoff(self.root,'character'));role=self.upload(role,'portrait');self.action('adopt',asset_id=role['id'],version=4)
         role=self.service.catalog(1)['assets'][0];v=library._version(role)
         refs=contracts.select_reference_views(self.state(),role,v,'body_front','qwen-image-3.0-pro',4,None)
         self.assertEqual([r['tag'] for r in refs],['portrait'])
@@ -144,6 +144,17 @@ class HandoffTests(AssetFixture):
         self.assertFalse(parsed['ready']);self.assertEqual(parsed['source']['document'],'design.md')
         self.assertFalse(parsed['items'][0]['ready']);self.assertIn('本版系统设计选择',parsed['items'][0]['notes'])
 
+
+    def test_workflow_material_readiness_requires_current_adopted_masters(self):
+        import workflow_state
+        role=self.service.catalog(1)['assets'][0];role=self.install_profile(role['id'],handoff(self.root,'character'));role=self.upload(role,'portrait')
+        self.action('adopt',asset_id=role['id'],version=role['latest_version'])
+        self.assertEqual(workflow_state.material_preparation(self.state())['ready'],0)
+        role=self.upload(role,'body_front');self.action('adopt',asset_id=role['id'],version=role['latest_version'])
+        self.assertEqual(workflow_state.material_preparation(self.state()),{'ready':1,'total':1,'complete':True})
+        role=self.service.catalog(1)['assets'][0]
+        self.action('edit',asset_id=role['id'],name='新的角色设定',summary='新外观',role='主角',variant='')
+        self.assertFalse(workflow_state.material_preparation(self.state())['complete'])
 
 class RecipePipelineTests(AssetFixture):
     def setUp(self):

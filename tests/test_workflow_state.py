@@ -24,3 +24,17 @@ class WorkflowFacts(unittest.TestCase):
   self.approve(s);self.assertEqual(w.derive(s)['code'],'VIDEO_READY');s['characters'][0]['notes']='changed';self.assertEqual(w.derive(s)['approved_count'],0)
  def test_budget_or_default_model_does_not_grant_or_invalidate_quality(self):
   s=self.state();s['settings']={'provider':'wan3-prime'};self.assertEqual(w.derive(s)['approved_count'],0);self.approve(s);s['settings']['provider']='wan3';s['budget_authorizations']=[{'version':2}];self.assertEqual(w.derive(s)['approved_count'],2)
+
+ def test_material_stage_is_between_story_and_storyboard(self):
+  s=self.state()
+  for shot in s['shots']:shot.pop('storyboard_local',None)
+  before=copy.deepcopy(s);result=w.derive(s)
+  self.assertEqual(s,before)
+  self.assertEqual(result['code'],'MATERIAL_PREPARATION')
+  self.assertEqual([x['key'] for x in result['steps']],['story','materials','storyboard','generation','review'])
+  step=result['steps'][1];self.assertTrue(step['active']);self.assertFalse(step['complete']);self.assertEqual(step['href'],'#characters')
+  self.assertEqual(result['materials'],{'ready':0,'total':1,'complete':False})
+ def test_legacy_video_progress_does_not_invent_adopted_materials(self):
+  s=self.state();self.approve(s);result=w.derive(s)
+  self.assertEqual(result['code'],'VIDEO_READY')
+  self.assertFalse(result['steps'][1]['complete'])

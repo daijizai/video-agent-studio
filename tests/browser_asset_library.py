@@ -1,4 +1,5 @@
 """Integrated material UI, mock generation only, no production DB or inference."""
+from browser_workbench_helpers import new_project, switch_project, open_material_details, open_shot_feedback
 import copy
 import hashlib
 import json
@@ -61,14 +62,14 @@ try:
   page.locator('[data-task-poll]').click();page.wait_for_function('document.querySelector(".material-cover img")!==null')
   assert '候选 v2' in page.locator('[data-asset-tasks]').inner_text()
   assert fixture.service.catalog(1)['assets'][-1]['adopted_version'] is None
-  page.locator('[data-history]').click();page.get_by_role('button',name='放大外观主图',exact=True).click()
+  open_material_details(page);page.locator('[data-history]').click();page.get_by_role('button',name='放大外观主图',exact=True).click()
   page.get_by_role('button',name='原尺寸',exact=True).wait_for();page.keyboard.press('Escape')
   assert page.get_by_role('dialog').count()==1
   page.get_by_role('button',name='人工采用 v2',exact=True).click()
   page.wait_for_function('document.querySelector(".material-version")?.textContent.includes("已采用")')
   assert fixture.state()['shots'][0]['approved']
   # Optional upload is secondary; it creates a candidate without replacing adopted v2.
-  page.locator('.material-card details > summary').click();page.get_by_role('button',name='导入已有图片',exact=True).click()
+  open_material_details(page);page.get_by_role('button',name='导入已有图片',exact=True).click()
   upload_file=root/'single-view.png';upload_file.write_bytes(png(color=(30,50,70)))
   page.get_by_label('这张图片的视图',exact=True).select_option('side')
   page.get_by_label('选择本机图片（PNG / JPEG / WebP，最多12MB）',exact=True).set_input_files(str(upload_file))
@@ -78,7 +79,7 @@ try:
   assert fixture.state()['shots'][0]['approved']
   # Edit text into a new independent version, without replacing existing character context.
   page.get_by_role('button',name='全部',exact=True).click();role=page.locator('.material-card').filter(has=page.get_by_role('heading',name='记者',exact=True))
-  role.locator('[data-edit]').click();page.get_by_label('简要设定',exact=True).fill('冷静，短发，灰夹克。')
+  open_material_details(page,role);page.locator('[data-edit]').click();page.get_by_label('简要设定',exact=True).fill('冷静，短发，灰夹克。')
   page.get_by_role('button',name='保存为新版本',exact=True).click()
   page.wait_for_function('document.querySelector(".material-summary")?.textContent.includes("冷静")')
   assert fixture.state()['characters']==fixture.initial['characters']

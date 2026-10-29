@@ -1,4 +1,5 @@
 """Public story UI vs explicit diagnostics; temp DB, no external calls or submit."""
+from browser_workbench_helpers import new_project, switch_project, open_material_details, open_shot_feedback
 import base64
 import copy
 import os
@@ -51,7 +52,7 @@ with tempfile.TemporaryDirectory() as tmp:
             page.goto(f'http://127.0.0.1:{http.server_port}/#shots')
             page.locator('.shot-details').first.wait_for(state='attached')
             baseline=copy.deepcopy(server.read());assert baseline['workflow']['code']=='COMPLETE'
-            page.locator('.shot-details').nth(1).locator('> summary').click()
+            open_shot_feedback(page,1)
             assert page.locator('.storyboard-assist').count()==0
             assert page.locator('#provider-result,#ip0,#sp0,#refs0,#sf0,[data-path]').count()==0
             assert 'INTERNAL-' not in page.content()
@@ -65,22 +66,22 @@ with tempfile.TemporaryDirectory() as tmp:
             page.get_by_role('status').filter(has_text='反馈已保存').wait_for()
             assert server.read()['workflow']['code']=='COMPLETE'
             assert server.read()['workflow']['approved_count']==4
-            first=page.locator('.shot-details').first;first.locator('> summary').click()
+            open_shot_feedback(page,0)
             page.locator('#intent0').fill('她先疑惑，再意识到日期不对。')
-            page.locator('[data-approve="0"]').click();page.get_by_role('status').filter(has_text='请先保存').wait_for()
-            saved_click(page.locator('[data-shot-save="0"]'));page.get_by_role('status').filter(has_text='已保存到本机').wait_for()
+            page.keyboard.press('Escape');page.locator('[data-approve="0"]').click();page.get_by_role('status').filter(has_text='请先保存').wait_for()
+            open_shot_feedback(page,0);saved_click(page.locator('[data-shot-save="0"]'));page.get_by_role('status').filter(has_text='已保存到本机').wait_for()
             saved=server.read();assert saved['workflow']['approved_count']==3
             for key in ['prompt','image_prompt','reference_images','creative_details']:
                 assert saved['shots'][0][key]==baseline['shots'][0][key],key
             page.reload();page.locator('.shot-details').first.wait_for(state='attached')
-            page.locator('.shot-details').first.locator('> summary').click()
+            open_shot_feedback(page,0)
             assert page.locator('#intent0').input_value()=='她先疑惑，再意识到日期不对。'
             for width,height in [(375,812),(812,375),(1440,1000)]:
                 page.set_viewport_size({'width':width,'height':height})
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             screenshot=os.environ.get('STORYBOARD_PUBLIC_SCREENSHOT')
             if screenshot:page.screenshot(path=screenshot)
-            page.get_by_role('link',name='02 剧本',exact=True).click();page.locator('#script').wait_for()
+            page.keyboard.press('Escape');page.get_by_role('link',name='02 剧本',exact=True).click();page.locator('#script').wait_for()
             assert page.locator('#continuity,#brief').count()==0
             assert 'INTERNAL-' not in page.content()
             saved_click(page.get_by_role('button',name='保存剧本',exact=True))
@@ -93,14 +94,14 @@ with tempfile.TemporaryDirectory() as tmp:
             page.get_by_role('status').filter(has_text='已保存到本机').wait_for()
             assert server.read()['script']=='新的故事正文，来自普通用户。'
             page.get_by_role('link',name='03 素材资产库',exact=True).click()
-            page.locator('.material-card [data-edit]').first.click()
+            open_material_details(page);page.locator('[data-edit]').click()
             page.get_by_label('简要设定',exact=True).fill('冷静的记者，短发，习惯先观察再行动。')
             with page.expect_response('**/api/assets/edit'):
                 page.get_by_role('button',name='保存为新版本',exact=True).click()
             page.wait_for_function('document.querySelector(".material-summary")?.textContent.includes("冷静的记者")')
             current=server.read();asset=asset_library.assets(current)[0]
             server.material_service().mutate(current['project_id'],current['revision'],'design',{'asset_id':asset['id'],'profile':handoff(root,'character')})
-            page.reload();page.locator('[data-history]').first.wait_for();page.locator('[data-history]').first.click()
+            page.reload();page.locator('[data-detail]').first.wait_for();open_material_details(page);page.locator('[data-history]').click()
             with page.expect_response('**/api/assets/adopt'):
                 page.get_by_role('button',name='人工采用 v3',exact=True).click()
             assert server.read()['characters'][0]['notes']=='冷静的记者，短发，习惯先观察再行动。'
@@ -122,10 +123,8 @@ with tempfile.TemporaryDirectory() as tmp:
             page.get_by_role('link',name='返回分镜',exact=True).click()
             page.locator('#intent0').wait_for(state='attached')
             assert page.locator('[data-path],#workflow,#ip0,#continuity,#provider-result').count()==0
-            page.get_by_role('button',name='＋ 新建项目',exact=True).click()
-            page.get_by_label('项目名称',exact=True).fill('独立故事 B')
-            page.get_by_role('button',name='创建项目',exact=True).click()
-            page.wait_for_function("document.querySelector('#project-select option:checked')?.textContent.includes('独立故事 B')")
+            new_project(page,'独立故事 B')
+            page.wait_for_function("document.querySelector('.current-project')?.textContent.includes('独立故事 B')")
             page.get_by_role('link',name='04 分镜工作台',exact=True).click()
             page.get_by_role('button',name='＋ 添加镜头',exact=True).click()
             page.locator('#intent0').wait_for(state='attached')

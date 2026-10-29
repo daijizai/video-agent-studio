@@ -2,8 +2,7 @@
 const StoryReview = (() => {
   const intent = shot => shot.story_intent ?? shot.creative_details?.beat ?? '';
   function scriptHTML(s) {
-    return head('STORY DEVELOPMENT','先把故事讲清楚。','写下故事、人物关系和你希望观众感受到的变化。','<button class="primary" id="save-script">保存剧本</button>')+
-      `<section class="panel"><div class="form-grid"><div><label class="field" for="title">作品名称</label><input id="title" value="${esc(s.title)}"></div><div><label class="field" for="episode">本集标题</label><input id="episode" value="${esc(s.episode)}"></div></div><label class="field" for="script">剧本正文</label><textarea id="script" rows="20">${esc(s.script)}</textarea></section>`;
+    return `<section class="script-workspace" aria-label="剧本编辑"><div class="script-toolbar"><h1>剧本</h1><div class="script-metadata"><label for="title">作品名称</label><input id="title" value="${esc(s.title)}"><label for="episode">本集标题</label><input id="episode" value="${esc(s.episode)}"></div><button class="primary" id="save-script">保存剧本</button></div><label class="sr-only" for="script">剧本正文</label><textarea id="script" spellcheck="false">${esc(s.script)}</textarea></section>`;
   }
   function internalHTML(s) {
     return `<section class="panel"><h2>内部制作规则</h2><p>保留原始内容供 Agent 和开发者维护；保存会按内容变化重新计算审批有效性。</p><label class="field" for="continuity">连续性手册（内部）</label><textarea id="continuity" rows="8">${esc(s.continuity)}</textarea><label class="field" for="brief">项目提案与 IP 规则（内部）</label><textarea id="brief" rows="8">${esc(s.project_brief || '')}</textarea><button id="save-internal" type="button">保存内部规则</button></section>`;

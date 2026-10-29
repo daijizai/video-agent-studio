@@ -1,4 +1,5 @@
 """Isolated Ark UI integration: mock sync image only, no real model calls."""
+from browser_workbench_helpers import new_project, switch_project, open_material_details, open_shot_feedback
 import os,sys,tempfile,threading,shutil,struct,zlib,json
 from pathlib import Path
 from unittest.mock import patch
@@ -34,9 +35,9 @@ with tempfile.TemporaryDirectory() as tmp:
    page.wait_for_function("document.querySelector('[data-image-art] img')!==null")
    assert submit.call_count==1;assert '图片已保存' in page.locator('[data-image-poll]').first.inner_text();assert page.locator('[data-image-poll]').first.is_disabled()
    assert not server.read()['shots'][0]['approved'];assert server.read()['image_tasks'][-1]['provider']=='seedream'
-   page.get_by_role('link',name='05 视频制作与预览',exact=True).click();page.locator('#video-stage .video-empty').wait_for();assert page.locator('video').count()==0
-   page.get_by_role('button',name='＋ 新建项目',exact=True).click();page.get_by_label('项目名称',exact=True).fill('Ark isolated project');page.get_by_role('button',name='创建项目',exact=True).click()
-   page.wait_for_function("document.querySelector('#project-select option:checked')?.textContent.includes('Ark isolated project')")
+   page.get_by_role('link',name='05 视频制作',exact=True).click();page.locator('#video-stage .video-empty').wait_for();assert page.locator('video').count()==0
+   new_project(page,'Ark isolated project')
+   page.wait_for_function("document.querySelector('.current-project')?.textContent.includes('Ark isolated project')")
    assert server.read()['image_tasks']==[];assert submit.call_count==1
    for w in [375,768,1440]:page.set_viewport_size({'width':w,'height':900});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
    assert not errors,errors;browser.close();print('PASS: Ark model selection, pause retained, offline preview, sync result image, no false approval, project isolation, responsive UI; no real inference')

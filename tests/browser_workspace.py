@@ -1,4 +1,5 @@
 """Isolated browser integration test: new project, edits, switching, reload, dry-run."""
+from browser_workbench_helpers import new_project, switch_project, open_material_details, open_shot_feedback
 import os,sys,tempfile,threading
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -10,12 +11,12 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         with sync_playwright() as p:
             browser=p.chromium.launch();page=browser.new_page(viewport={'width':1440,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
-            page.goto('http://127.0.0.1:'+str(http.server_port));page.get_by_role('button',name='＋ 新建项目',exact=True).wait_for()
-            page.get_by_role('button',name='＋ 新建项目',exact=True).click();page.get_by_label('项目名称',exact=True).fill('隔离验证项目');page.get_by_role('button',name='创建项目',exact=True).click()
+            page.goto('http://127.0.0.1:'+str(http.server_port));page.locator('.current-project').wait_for()
+            new_project(page,'隔离验证项目')
             page.get_by_role('link',name='02 剧本').click();page.get_by_label('剧本正文',exact=True).fill('Only belongs to project B');page.get_by_role('button',name='保存剧本',exact=True).click();page.get_by_role('status').filter(has_text='已保存').wait_for()
-            page.reload();page.get_by_role('combobox',name='选择项目').wait_for();assert '隔离验证项目' in page.locator('#project-select option:checked').inner_text()
+            page.reload();page.locator('.current-project').wait_for();assert '隔离验证项目' in page.locator('.current-project').inner_text()
             assert page.get_by_label('剧本正文',exact=True).input_value()=='Only belongs to project B'
-            page.get_by_role('combobox',name='选择项目').select_option('1');page.get_by_label('剧本正文',exact=True).wait_for();page.wait_for_function("document.querySelector('#script').value.includes('雨夜')")
+            switch_project(page,1,'script');page.get_by_label('剧本正文',exact=True).wait_for();page.wait_for_function("document.querySelector('#script').value.includes('雨夜')")
             assert page.get_by_label('剧本正文',exact=True).input_value()!='Only belongs to project B'
             page.get_by_role('link',name='06 工具与设置').click();page.get_by_role('button',name='安全保存到仓库外',exact=True).wait_for()
             assert page.locator('#provider-choice').input_value()=='wan3-prime'
@@ -26,7 +27,7 @@ with tempfile.TemporaryDirectory() as tmp:
             page.get_by_role('link',name='进入开发者诊断',exact=True).click();page.get_by_role('button',name='预览请求与估价',exact=True).click();page.wait_for_function('document.querySelector("#provider-result").textContent.includes("wan3.0-video-prime")')
             assert 'wan3.0-video' in page.locator('#provider-result').inner_text()
             assert not page.get_by_role('button',name='提交供应商 · 视频未授权').is_enabled()
-            for name in ['视频制作与预览','素材资产库','制作总览']:
+            for name in ['视频制作','素材资产库','制作总览']:
                 page.locator('nav').get_by_role('link',name=name).click()
             for width in [375,768,1440]:
                 page.set_viewport_size({'width':width,'height':900});assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')

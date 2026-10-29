@@ -1,4 +1,5 @@
 """Standard-view UX with temporary assets, paused budget and zero model requests."""
+from browser_workbench_helpers import new_project, switch_project, open_material_details, open_shot_feedback
 import copy
 import json
 import os
@@ -30,9 +31,9 @@ http=server.ThreadingHTTPServer(('127.0.0.1',0),server.Handler);threading.Thread
 try:
  with sync_playwright() as p:
   browser=p.chromium.launch();page=browser.new_page(viewport={'width':1440,'height':1000});errors=[];page.on('pageerror',lambda err:errors.append(str(err)))
-  page.goto(f'http://127.0.0.1:{http.server_port}/#characters');page.locator('[data-design]').wait_for()
+  page.goto(f'http://127.0.0.1:{http.server_port}/#characters');page.locator('[data-detail]').wait_for()
   before=copy.deepcopy(fixture.state())
-  page.locator('[data-design]').click();design=page.get_by_role('dialog');assert '设计草案' in design.inner_text()
+  open_material_details(page);design=page.get_by_role('dialog');assert '设计草案' in design.inner_text()
   assert '尚未交接' in design.inner_text();assert design.locator('input,textarea').count()==0
   assert '服装' in design.inner_text();assert 'template_hash' not in design.inner_text()
   page.keyboard.press('Escape');assert page.locator('[data-generate]').is_disabled()
@@ -68,13 +69,13 @@ try:
    assert '当前制作规范待复核' in page.locator('.material-production').inner_text()
    assert fixture.state()==before_recipe
    page.locator('[data-generate]').click();assert page.locator('[data-view-tag][value="body_back"]').is_disabled();page.keyboard.press('Escape')
-   page.locator('[data-history]').click()
+   open_material_details(page);page.locator('[data-history]').click()
    page.get_by_role('button',name='按当前规范重新审阅 v5',exact=True).click()
    page.wait_for_function('!document.querySelector("dialog")')
    assert len(fixture.service.catalog(1)['assets'][0]['production_reviews'])==3
   for width,height in [(375,812),(812,375),(1440,1000)]:
    page.set_viewport_size({'width':width,'height':height});assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
-   page.locator('[data-design]').click();dialog=page.get_by_role('dialog');assert dialog.evaluate('(e)=>e.getBoundingClientRect().width<=innerWidth')
+   open_material_details(page);dialog=page.get_by_role('dialog');assert dialog.evaluate('(e)=>e.getBoundingClientRect().width<=innerWidth')
    for _ in range(5):page.keyboard.press('Tab');assert dialog.evaluate('(e)=>e.contains(document.activeElement)')
    page.keyboard.press('Escape')
   assert generation_scope.path().read_bytes()==auth_before;provider.submit.assert_not_called();assert not errors,errors

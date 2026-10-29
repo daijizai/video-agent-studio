@@ -1,4 +1,5 @@
 """Real integrated UI, temporary SQLite, no submit/model/production data calls."""
+from browser_workbench_helpers import new_project, switch_project, open_material_details, open_shot_feedback
 import copy
 import os
 import shutil
@@ -88,15 +89,13 @@ with tempfile.TemporaryDirectory() as tmp:
                 assist.scroll_into_view_if_needed();page.screenshot(path=screenshot)
             # Switching projects must not leak an unsaved assistant draft.
             second.get_by_label('触发事件（可空）',exact=True).fill('UNSAVED-PROJECT-A')
-            page.get_by_role('button',name='＋ 新建项目',exact=True).click()
-            page.get_by_label('项目名称',exact=True).fill('辅助编辑隔离项目')
-            page.get_by_role('button',name='创建项目',exact=True).click()
-            page.wait_for_function("document.querySelector('#project-select option:checked')?.textContent.includes('辅助编辑隔离项目')")
+            new_project(page,'辅助编辑隔离项目')
+            page.wait_for_function("document.querySelector('.current-project')?.textContent.includes('辅助编辑隔离项目')")
             page.get_by_role('link',name='04 分镜工作台',exact=True).click();page.get_by_role('button',name='＋ 添加镜头',exact=True).click();page.goto(f'http://127.0.0.1:{http.server_port}/#diagnostics')
             page.locator('.storyboard-assist').wait_for(state='attached')
             assert 'UNSAVED-PROJECT-A' not in page.content()
             assert not server.read()['shots'][0].get('creative_details')
-            page.get_by_role('combobox',name='选择项目').select_option('1')
+            switch_project(page,1,'diagnostics')
             page.wait_for_function('document.querySelectorAll(".shot-details").length===4')
             assert server.read()['shots'][0]['creative_details']==saved['shots'][0]['creative_details']
             assert 'action_chain' not in server.read()['shots'][1].get('creative_details',{})
