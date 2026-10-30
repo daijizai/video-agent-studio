@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "source": "镜头术语与分类参考 Wayhhow/ai-video-shot-prompt-skill；说明由 Frame Studio 重新整理。",
+  "items": [
+    {"id":"size-extreme-wide","kind":"size","name":"大远景","description":"画面以环境为主，人物只占很小的位置。","use":"交代场所、规模或孤独感。","instruction":"使用大远景，让环境占据画面，人物保持较小并可辨认。"},
+    {"id":"size-wide","kind":"size","name":"远景","description":"同时展示人物和较大范围的环境。","use":"建立场景和人物与环境的关系。","instruction":"使用远景，同时呈现主体与周围环境的空间关系。"},
+    {"id":"size-full","kind":"size","name":"全景","description":"人物从头到脚完整入画。","use":"展示走位和全身动作。","instruction":"使用全景，保持人物从头到脚完整可见，并留出动作空间。"},
+    {"id":"size-medium","kind":"size","name":"中景","description":"重点呈现人物上半身及其周围动作。","use":"人物交流和操作道具。","instruction":"使用中景，让人物上半身和与之互动的道具清晰可见。"},
+    {"id":"size-close","kind":"size","name":"近景","description":"靠近人物，突出面部和上半身。","use":"呈现对白与表情变化。","instruction":"使用近景，重点呈现主体面部和必要的上半身动作。"},
+    {"id":"size-detail","kind":"size","name":"特写","description":"集中展示面部、手部或道具局部。","use":"突出关键反应和线索。","instruction":"使用特写，清楚呈现这一拍的关键局部，保留可理解的上下文。"},
+    {"id":"composition-thirds","kind":"composition","name":"三分构图","description":"主体偏向画面一侧，为视线或环境留空间。","use":"平衡人物与环境。","instruction":"主体位于画面一侧约三分之一处，在其视线方向保留合理空间。"},
+    {"id":"composition-center","kind":"composition","name":"居中对称","description":"主体居中，左右画面保持相对平衡。","use":"突出人物、秩序或仪式感。","instruction":"将主体置于画面中心，背景左右保持相对平衡。"},
+    {"id":"composition-negative","kind":"composition","name":"留白","description":"主体之外保留较大的空余画面。","use":"表现等待、孤独或画外压力。","instruction":"为主体周围留出明显空白，利用空余空间表达环境关系。"},
+    {"id":"composition-leading","kind":"composition","name":"引导线","description":"用走廊、道路或物体边缘引导目光。","use":"强调纵深与目标。","instruction":"利用场景中的线条把视线自然引向主体或关键位置。"},
+    {"id":"composition-frame","kind":"composition","name":"框架构图","description":"用门框或窗框等空间元素围合主体。","use":"表现隔离或观察。","instruction":"利用现场的门框或窗框形成前景框架，保持主体可辨。"},
+    {"id":"composition-diagonal","kind":"composition","name":"对角线构图","description":"让主体或场景的主要方向沿画面对角线展开。","use":"强调速度、方向或冲突。","instruction":"用场景或人物的位置形成可读的对角线关系，不改变主体动作方向。"},
+    {"id":"movement-static","kind":"movement","name":"固定镜头","description":"摄像机位置和朝向基本不变。","use":"观察表演和连续动作。","instruction":"固定机位拍摄，不通过摄影机晃动制造变化。"},
+    {"id":"movement-push","kind":"movement","name":"缓慢推近","description":"摄像机逐渐靠近主体。","use":"强调发现、决定或情绪。","instruction":"摄像机平稳缓慢靠近主体，保持对焦和运动连续。"},
+    {"id":"movement-pull","kind":"movement","name":"缓慢拉远","description":"摄像机逐渐远离主体并展示更多环境。","use":"揭示空间或作为收尾。","instruction":"摄像机平稳缓慢后退，逐渐显露周围环境。"},
+    {"id":"movement-pan","kind":"movement","name":"横摇","description":"摄影机位置不变，朝一侧转动。","use":"从主体引向另一个位置。","instruction":"保持机位不变，平稳转向目标，清楚交代两者的空间关系。"},
+    {"id":"movement-truck","kind":"movement","name":"横移","description":"摄像机整体向侧面移动。","use":"展示空间，或借前景揭示主体。","instruction":"摄像机平稳向侧面移动，背景随运动产生自然视差。"},
+    {"id":"movement-follow","kind":"movement","name":"跟拍","description":"摄像机跟随主体移动。","use":"行走、奔跑或追逐。","instruction":"摄像机随主体同方向运动，保持适当距离和可读构图。"},
+    {"id":"movement-orbit","kind":"movement","name":"环绕","description":"摄像机沿主体周围的弧线移动。","use":"展示人物或道具的不同侧面。","instruction":"摄像机围绕主体沿弧线平稳移动，主体本身不必跟着旋转；运动幅度由当前镜头决定。"},
+    {"id":"movement-crane","kind":"movement","name":"升降","description":"摄像机整体向上或向下运动。","use":"从人物揭示场景，或强调高度。","instruction":"摄像机平稳升高或降低，连续呈现空间层次。"},
+    {"id":"movement-whip","kind":"movement","name":"甩镜","description":"摄像机快速转向，出现短暂运动模糊。","use":"突出突然发生的变化。","instruction":"摄像机快速转向目标，产生短暂运动模糊后稳定在新画面。"},
+    {"id":"movement-dolly-zoom","kind":"movement","name":"推轨变焦","description":"摄影机移动与变焦反向配合，主体大小大致不变。","use":"表现震惊或空间压迫。","instruction":"摄像机后退同时逐渐变焦拉近，尽量保持主体大小不变，使背景空间看起来逐渐压缩。"}
+  ]
+}

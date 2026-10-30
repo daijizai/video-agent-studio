@@ -21,6 +21,12 @@ def prepare(state,shot,library):
             sources.append({'asset_id':ref['asset_id'],'version':ref['version'],'name':ref['name'],'view_id':view['id'],'sha256':info['sha256']})
             roles.append('第%d张参考图为%s，仅固定身份或物品结构，不照搬标准图姿态与背景。'%(len(sources),ref['name']))
     prompt=shot.get('material_video_prompt') or shot.get('prompt','')
+    shot_language=shot.get('shot_language') or []
+    if not isinstance(shot_language,list) or len(shot_language)>3:raise ValueError('镜头语言引用无效')
+    if shot_language:
+        if any(not isinstance(x,dict) or x.get('kind') not in ('size','composition','movement') or not isinstance(x.get('instruction'),str) or len(x['instruction'])>500 for x in shot_language):raise ValueError('镜头语言引用无效')
+        if len({x['kind'] for x in shot_language})!=len(shot_language):raise ValueError('每类镜头语言最多选一项')
+        prompt+='\n本段镜头语言（多镜头时以各镜头明确安排为准）：'+' '.join(x['instruction'] for x in shot_language)
     style=state.get('project_style') or {}
     prompt+='\n素材用途：'+''.join(roles)+'\n这些均为素材参考，不指定任何首帧或分镜图片。\n项目风格：'+(style.get('prompt') or style.get('description',''))
     brief=state.get('project_brief') or {}
@@ -126,7 +132,7 @@ def prepare(state,shot,library):
         if item['type']=='image_url':item['image_url']['url']=data[item['image_url']['url']]
         elif item['type']=='audio_url':item['audio_url']['url']=voice_data[audio_index];audio_index+=1
     if len(json.dumps(prepared['payload']).encode())>64*1024*1024:raise ValueError('视频请求超过64MB')
-    snapshot={'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'quality_warnings':quality_warnings}
+    snapshot={'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'quality_warnings':quality_warnings,'shot_language':copy.deepcopy(shot_language)}
     return prepared,snapshot
 
 def operate(server,state,action,p):

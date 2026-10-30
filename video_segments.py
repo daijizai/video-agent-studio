@@ -82,6 +82,10 @@ def operate(server,state,action,p):
         mode=update['material_video_reference_mode']
         if mode not in ('original','tail'):raise ValueError('前置视频参考方式无效')
         segment['material_video_reference_mode']=mode
+    if 'shot_language_ids' in update:
+        import creative_resources
+        refs=creative_resources.resolve(server.ROOT,update['shot_language_ids'],segment.get('shot_language'))
+        if refs or 'shot_language' in segment:segment['shot_language']=refs
     if 'reference_asset_ids' in update:
         ids=update['reference_asset_ids']
         if not isinstance(ids,list) or len(ids)>9 or len(ids)!=len(set(ids)):raise ValueError('素材选择无效或超限')

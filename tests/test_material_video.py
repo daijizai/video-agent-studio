@@ -16,6 +16,13 @@ class MaterialVideoTests(unittest.TestCase):
   self.assertEqual(prepared['payload']['content'][1]['role'],'reference_image')
   self.assertTrue(prepared['payload']['content'][1]['image_url']['url'].startswith('data:image/png;base64,'))
   self.assertNotIn('old.invalid',str(prepared));self.assertNotIn('data:image',str(snapshot))
+ def test_shared_shot_language_is_sent_and_bound_to_snapshot(self):
+  self.shot['shot_language']=[{'id':'movement-orbit','kind':'movement','name':'环绕','instruction':'摄像机沿弧线移动','catalog_version':1}]
+  prepared,snapshot=mv.prepare(self.state,self.shot,self.lib)
+  self.assertIn('摄像机沿弧线移动',prepared['payload']['content'][0]['text'])
+  self.assertEqual(snapshot['shot_language'][0]['name'],'环绕')
+  self.shot['shot_language'][0]['instruction']='后来修改'
+  self.assertEqual(snapshot['shot_language'][0]['instruction'],'摄像机沿弧线移动')
  def test_accepted_first_video_voice_reference_is_sent_and_bound(self):
   import tempfile,hashlib,wave
   with tempfile.TemporaryDirectory() as tmp:

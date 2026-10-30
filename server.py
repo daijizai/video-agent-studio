@@ -235,6 +235,11 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.startswith('/media/'):return self.serve_media(head=True)
         return super().do_HEAD()
     def do_GET(self):
+        if self.path=='/api/workspace/creative-resources':
+            try:
+                import creative_resources
+                return self.reply(creative_resources.catalog(ROOT))
+            except Exception:return self.reply({'error':'创作资源暂不可用'},400)
         if self.path.startswith('/voice-media/'):return self.serve_voice()
         if self.path.startswith('/asset-media/'):return self.serve_material()
         if self.path in ('/api/assets','/api/assets/propose'):
