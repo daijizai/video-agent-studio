@@ -1,5 +1,5 @@
 """Repository-external, project/database-bound finite spending authorizations."""
-import json,time,os,tempfile,uuid,sqlite3
+import json,time,os,tempfile,uuid,sqlite3,math
 from decimal import Decimal
 from pathlib import Path
 import secret_store
@@ -24,7 +24,7 @@ def check(state,database,kind,estimate,model,shot_id=None):
   grant=scope.get('budget_grants',{}).get(kind)
   if not grant:raise ValueError('该类别预算尚未获得明确授权')
   ledger=category_ledger(state,kind,grant['limit'])
-  if Decimal(str(ledger['committed_cny']))+Decimal(str(estimate))>Decimal(str(grant['limit'])):raise ValueError(('图片' if kind=='image' else '视频')+'独立预算不足；不能挪用另一类别额度')
+  if not (kind=='video' and grant.get('limit_disabled') is True) and Decimal(str(ledger['committed_cny']))+Decimal(str(estimate))>Decimal(str(grant['limit'])):raise ValueError(('图片' if kind=='image' else '视频')+'独立预算不足；不能挪用另一类别额度')
   return grant['id']
  images=[t for t in state.get('image_tasks',[]) if t.get('status')!='rejected'];videos=[t for t in state.get('tasks',[]) if t.get('status')!='rejected']
  rows=images if kind=='image' else videos
@@ -87,6 +87,9 @@ def category_ledger(state,kind,limit=None):
   if task.get('status')=='rejected':continue
   estimate=Decimal(str(task.get('estimate',0)));actual=task.get('actual_cost_cny');live=task.get('status') in ('reserved','submitting','uploading','queued','running','unknown','archive_pending')
   if actual is None:
+   reported=task.get('reported_original_cny')
+   if not live and isinstance(reported,(int,float)) and not isinstance(reported,bool) and math.isfinite(reported) and reported>=0 and task.get('reported_original_source'):
+    estimate=Decimal(str(reported))
    unknown+=1;committed+=estimate
    if live:inflight+=estimate
    else:unsettled+=estimate
@@ -99,7 +102,22 @@ def budget_summary(state,database):
  scope=read().get(str(state['project_id']),{})
  if scope.get('database')!=str(Path(database).resolve()):scope={}
  grants=scope.get('budget_grants',{}) if scope.get('budget_mode')=='separate_v1' else {}
- return {kind:{**category_ledger(state,kind,grants.get(kind,{}).get('limit')),'authorized':kind in grants,'generation_paused':bool(scope.get('paused')),'execution_allowed':kind in grants and not scope.get('paused',False),'authorization':grants.get(kind)} for kind in ('image','video')}
+ return {kind:{**category_ledger(state,kind,None if kind=='video' and grants.get(kind,{}).get('limit_disabled') is True else grants.get(kind,{}).get('limit')),'limit_disabled':kind=='video' and grants.get(kind,{}).get('limit_disabled') is True,'authorized':kind in grants,'generation_paused':bool(scope.get('paused')),'execution_allowed':kind in grants and not scope.get('paused',False),'authorization':grants.get(kind)} for kind in ('image','video')}
+
+def disable_video_limit(project_id,database,source,content_revision):
+ data=read();scope=data.get(str(project_id))
+ if not scope or scope.get('database')!=str(Path(database).resolve()) or scope.get('budget_mode')!='separate_v1' or not scope.get('budget_grants',{}).get('video'):raise ValueError('该项目没有可调整的视频预算授权')
+ grant=scope['budget_grants']['video'];grant['limit_disabled']=True
+ entry={'action':'disable_video_limit','source':secret_store.redact(source),'content_revision':content_revision,'at':time.time(),'previous_limit':grant.get('limit')}
+ scope.setdefault('budget_override_history',[]).append(entry)
+ p=path();fd,tmp=tempfile.mkstemp(dir=p.parent,prefix='.generation-')
+ try:
+  os.fchmod(fd,0o600)
+  with os.fdopen(fd,'w') as f:json.dump(data,f)
+  os.replace(tmp,p);p.chmod(0o600)
+ finally:
+  if os.path.exists(tmp):os.unlink(tmp)
+ return entry
 def authorize_budgets(project_id,database,image_limit,video_limit,source,content_revision,models=None,local_repair_limit=None):
  from math import isfinite
  for amount in (image_limit,video_limit):

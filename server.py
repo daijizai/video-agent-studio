@@ -218,16 +218,31 @@ class Handler(SimpleHTTPRequestHandler):
         except ValueError as error:return self.reply({'error':secret_store.redact(str(error))},400)
         except Exception:return self.reply({'error':'素材操作未完成，请刷新并核对原记录；不会自动重新生成'},400)
 
+    def serve_voice(self,head=False):
+        try:
+            match=re.fullmatch(r'/voice-media/([1-9][0-9]*)/([a-f0-9]{32})\.wav',self.path)
+            if not match or int(match[1])!=current_project():raise ValueError('声音素材不属于当前项目')
+            import voice_assets
+            data=voice_assets.audio_data(read(),ROOT,int(match[1]),match[2])
+            self.send_response(200);self.send_header('Content-Type','audio/wav');self.send_header('Content-Length',str(len(data)));self.send_header('X-Content-Type-Options','nosniff');self.end_headers()
+            if not head:self.wfile.write(data)
+        except (BrokenPipeError,ConnectionResetError):return
+        except Exception:self.reply({'error':'声音素材不可用'},404)
+
     def do_HEAD(self):
+        if self.path.startswith('/voice-media/'):return self.serve_voice(head=True)
         if self.path.startswith('/asset-media/'):return self.serve_material(head=True)
         if self.path.startswith('/media/'):return self.serve_media(head=True)
         return super().do_HEAD()
     def do_GET(self):
+        if self.path.startswith('/voice-media/'):return self.serve_voice()
         if self.path.startswith('/asset-media/'):return self.serve_material()
         if self.path in ('/api/assets','/api/assets/propose'):
             try:
                 pid=current_project()
-                return self.reply(material_service().propose(pid) if self.path.endswith('/propose') else material_generation().catalog(pid))
+                result=material_service().propose(pid) if self.path.endswith('/propose') else material_generation().catalog(pid)
+                if self.path=='/api/assets':result['voice_assets']=read(pid).get('voice_assets',[])
+                return self.reply(result)
             except Exception:return self.reply({'error':'素材库暂不可用，请刷新当前项目'},400)
         if self.path.startswith('/media/'):return self.serve_media()
         if self.path=='/api/projects':return self.reply(project_list())
@@ -236,7 +251,7 @@ class Handler(SimpleHTTPRequestHandler):
             s=read();active=generation_scope.active(s['project_id'],DATA/'studio.db');scope=generation_scope.read().get(str(s['project_id']),{});scope=scope if scope.get('database')==str((DATA/'studio.db').resolve()) else {}
             budgets=generation_scope.budget_summary(s,DATA/'studio.db');separate=scope.get('budget_mode')=='separate_v1'
             image_count=sum(t['status']!='rejected' for t in s['image_tasks']);video_count=sum(t['status']!='rejected' for t in s['tasks'])
-            return self.reply({'ffmpeg':bool(shutil.which('ffmpeg')),'ffprobe':bool(shutil.which('ffprobe')),'paid_generation':active,'generation_paused':bool(scope.get('paused')),'wan3_credential_present':bool(secret_store.get_key('WAN3_API_KEY')),'image_generation':active and (budgets['image']['authorized'] and budgets['image']['remaining_cny']>0 if separate else image_count<scope.get('image_limit',0)),'video_generation':active and (budgets['video']['authorized'] and budgets['video']['remaining_cny']>0 if separate else video_count<scope.get('video_limit',0)),'budgets':budgets,'budget_mode':scope.get('budget_mode','legacy'),'image_limit':scope.get('image_limit',0),'video_limit':scope.get('video_limit',0)})
+            return self.reply({'ffmpeg':bool(shutil.which('ffmpeg')),'ffprobe':bool(shutil.which('ffprobe')),'paid_generation':active,'generation_paused':bool(scope.get('paused')),'wan3_credential_present':bool(secret_store.get_key('WAN3_API_KEY')),'image_generation':active and (budgets['image']['authorized'] and budgets['image']['remaining_cny']>0 if separate else image_count<scope.get('image_limit',0)),'video_generation':active and (budgets['video']['authorized'] and (budgets['video']['limit_disabled'] or budgets['video']['remaining_cny']>0) if separate else video_count<scope.get('video_limit',0)),'budgets':budgets,'budget_mode':scope.get('budget_mode','legacy'),'image_limit':scope.get('image_limit',0),'video_limit':scope.get('video_limit',0)})
         if self.path=='/api/budgets':return self.reply(generation_scope.budget_summary(read(),DATA/'studio.db'))
         if self.path=='/api/repair/preflight':
             try:
@@ -348,7 +363,28 @@ class Handler(SimpleHTTPRequestHandler):
                 if action in ('/api/submit','/api/image/submit','/api/provider/submit','/api/sequence/submit') and generation_scope.is_paused(s['project_id'],DATA/'studio.db'):raise ValueError('用户已暂停本项目新生成；预算和历史保留，不能提交新媒体')
                 if 'project_id' in p and int(p['project_id'])!=s['project_id']:raise ValueError('当前项目已切换，请刷新页面后再保存')
                 if 'revision' in p and int(p['revision'])!=s['revision']:raise ValueError('项目已被其他窗口或CLI修改，请刷新后重试')
-                if action=='/api/save':
+                if action=='/api/video-speed/start':
+                    import video_speed_export
+                    return self.reply(video_speed_export.start(s,ROOT,p.get('rate'),p.get('source_sha256'),p.get('source_url')))
+                if action=='/api/video-speed/status':
+                    import video_speed_export
+                    return self.reply(video_speed_export.status(s['project_id'],p.get('job_id')))
+                if action.startswith('/api/voice-assets/'):
+                    import voice_assets
+                    voice_assets.operate(s,ROOT,action.rsplit('/',1)[-1],p)
+                    save(s);return self.reply(read())
+                if action.startswith('/api/material-video/'):
+                    import material_video,sys
+                    return self.reply(material_video.operate(sys.modules[__name__],s,action.rsplit('/',1)[-1],p))
+                if action=='/api/video-cost/report-original':
+                    task=next((t for t in s['tasks'] if t['id']==p.get('task_id')),None)
+                    amount=p.get('amount');bill_id=str(p.get('bill_id',''))
+                    if not task or task.get('status')!='completed':raise ValueError('只能为已完成视频记录账单原价')
+                    if type(amount) not in (int,float) or not math.isfinite(amount) or not 0<=amount<=100000:raise ValueError('账单原价无效')
+                    if not re.fullmatch(r'Bill[0-9]{8,40}',bill_id):raise ValueError('请提供用户账单编号')
+                    task['reported_original_cny']=amount
+                    task['reported_original_source']={'type':'user_bill_original','bill_id':bill_id,'note':'用户提供的账单原价；按用量推定任务对应，折扣后实付尚未核对'}
+                elif action=='/api/save':
                     previous_shots=copy.deepcopy(s['shots'])
                     for key in ['title','episode','script','continuity','characters','shots','budget','target_duration','production_demo','sequence_prompt','authorization_note','source_manifest','project_brief','quality_lessons','final_video','budget_authorizations']:
                         if key in p:s[key]=p[key]
@@ -377,6 +413,8 @@ class Handler(SimpleHTTPRequestHandler):
                             import ark_provider
                             shot['ark_reference_approval']=ark_provider.reference_binding(shot)
                     else:shot['approved']=False;shot['image_quality']='unreviewed'
+                elif action=='/api/budgets/disable-video-limit':
+                    generation_scope.disable_video_limit(s['project_id'],DATA/'studio.db',str(p.get('source','用户明确要求取消项目视频预算上限'))[:500],s['revision'])
                 elif action=='/api/budgets/authorize':
                     source=str(p.get('source','local user confirmation'))[:500]
                     record=generation_scope.authorize_budgets(s['project_id'],DATA/'studio.db',p.get('image_limit'),p.get('video_limit'),source,s['revision'],models=p.get('models'),local_repair_limit=p.get('local_repair_limit'))
@@ -492,14 +530,26 @@ class Handler(SimpleHTTPRequestHandler):
                         result=providers.Provider(task['provider']).status(task['provider_task_id']);task.pop('poll_error',None)
                     except Exception as error:
                         task['poll_error']=str(error);save(s);return self.reply(read())
+                    # Polls report usage, not settled money. Never erase a recorded bill.
+                    if result.get('actual_cost_cny') is None and task.get('actual_cost_cny') is not None:result.pop('actual_cost_cny',None)
                     task.update(result)
+                    import video_costing
+                    cost_estimate=video_costing.public_estimate(task)
+                    if cost_estimate:task['published_cost_estimate']=cost_estimate
                     if result['status']=='completed' and result.get('video_url'):
                         try:task['local_video'],task['media_info']=media_files.cache_video(ROOT,s['project_id'],task['id'],result['video_url']);task.pop('download_error',None)
                         except Exception:task['download_error']='视频已生成，本地下载未完成；可再次查询原任务，不会重生成'
+                        if task.get('local_video') and not task.get('quality_review'):
+                            import video_quality
+                            review=video_quality.inspect(s,ROOT,task)
+                            if review is not None:task['quality_review']=review
                     if task.get('kind')=='sequence':
                         if task.get('local_video'):
                             prior=s.get('final_video') or {};kept=prior if prior.get('task_id')==task['id'] else {}
                             s['final_video']={**kept,'local_url':task['local_video'],'task_id':task['id'],'media_info':task.get('media_info',{}),'review_status':kept.get('review_status','pending'),'approval_snapshot':task.get('approval_snapshot',[])}
+                    elif task.get('segment_id'):
+                        segment=next((x for x in s.get('video_segments',[]) if x['id']==task['segment_id']),None)
+                        if segment is not None:segment['status']='待检查' if result['status']=='completed' else result['status']
                     else:next(x for x in s['shots'] if x['id']==task['shot_id'])['status']='待检查' if result['status']=='completed' else result['status']
                 elif action=='/api/connect':
                     r=remote(s['settings']['comfy_url'],'/system_stats');return self.reply({'connected':True,'system':r})

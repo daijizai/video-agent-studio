@@ -66,9 +66,9 @@ class SeedreamProvider:
         from image_provider import STATIC_FRAME_PREFIX,prompt_warnings
         prompt=str(shot.get('image_prompt') or shot.get('prompt') or '').strip()
         if not prompt:raise ValueError('请先填写关键帧画面描述')
-        refs=references(shot.get('reference_images',[]),3) # Workbench subset, not platform maximum.
+        refs=references(shot.get('reference_images',[]),10) # Seedream 5.0 Flash documented limit.
         raw=shot.get('image_size','720*1280')
-        if raw not in ('720*1280','1280*720','1024*1024','1536*2048','2048*1536','2048*2048'):raise ValueError('未支持的关键帧画幅')
+        if raw not in ('720*1280','1280*720','1024*1024','1536*2048','2048*1536','2048*2048','2048*1152'):raise ValueError('未支持的关键帧画幅')
         w,h=map(int,raw.split('*'))
         shape='竖版' if w<h else '横版' if w>h else '正方形'
         payload={'model':IMAGE_MODEL,'prompt':STATIC_FRAME_PREFIX+'\n'+prompt+'\n画幅：'+shape+'，宽高比 '+str(w)+':'+str(h),'size':'2K','response_format':'url','output_format':'png','watermark':True,'stream':False}

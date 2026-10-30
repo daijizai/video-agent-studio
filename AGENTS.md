@@ -17,3 +17,5 @@
 - For project-wide visual style and reference-image design, read `skills/frame-visual-style/SKILL.md`; preserve the detailed style bible and record the model-specific request without silently truncating it.
 - Keep reusable creative methods in these versioned Skills. Codex applies them to project material; Python/JS enforces data and execution contracts. Do not move budget, approval, credential or path enforcement out of code.
 - Ordinary UI shows stories, designs, media, versions, costs and feedback. Machine prompts and consistency records remain backstage; hiding them must not delete history or silently change requests.
+
+- For material-reference video shot prompts without prerequisite keyframes, read `skills/frame-video-prompts/SKILL.md`. Keep material and shot approval bound; do not silently reuse storyboard images as first frames.

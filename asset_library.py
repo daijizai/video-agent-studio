@@ -640,7 +640,7 @@ class AssetLibrary:
             refs.append({'asset_id': asset['id'], 'kind': asset['kind'], 'version': number,
                 'name': version['name'], 'variant': version.get('variant', ''), 'views': views,
                 'production_review':asset_templates.review_record(state,asset,version)})
-        if sum(len(ref.get('views',[])) for ref in refs)>3:raise ValueError('本镜最多选择3张素材参考，请只选关键视图')
+        if sum(len(ref.get('views',[])) for ref in refs)>9:raise ValueError('本镜最多选择9张素材参考，另为项目风格保留1张')
         if refs != old:
             shot['asset_references'] = refs
             shot.update(approved=False, text_approved=False, status='待确认')

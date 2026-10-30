@@ -48,7 +48,8 @@ def transport(method, url, headers, payload=None):
             body=json.load(error);code=body.get('code') or body.get('error',{}).get('code') or 'HTTPError'
             code=code if isinstance(code,str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,100}',code) else 'HTTPError'
         except Exception:body={};code='HTTPError'
-        message=str(body.get('message',''))[:500]
+        detail=body.get('error',{}) if isinstance(body.get('error',{}),dict) else {}
+        message=str(body.get('message') or detail.get('message',''))[:500]
         safe_headers={k:error.headers[k] for k in ('Retry-After','X-RateLimit-Limit','X-RateLimit-Remaining','X-RateLimit-Reset','X-Request-Id') if error.headers and error.headers.get(k)}
         raise ProviderHTTPError(error.code,code,message,safe_headers) from None
     except Exception:
@@ -151,4 +152,11 @@ class Provider:
         else:
             status = {'queued': 'queued', 'running': 'running', 'succeeded': 'completed', 'failed': 'failed', 'cancelled': 'cancelled', 'expired': 'failed'}.get(response.get('status'), 'unknown')
             url = response.get('content', {}).get('video_url')
-        return {'status': status, 'video_url': url, 'usage': response.get('usage', {}), 'actual_cost_cny': None}
+        result={'status': status, 'video_url': url, 'usage': response.get('usage', {}), 'actual_cost_cny': None}
+        if self.id in ('seedance25','seedance'):
+            # Official task metadata; do not invent a progress percentage or ETA.
+            allowed=('created_at','updated_at','duration','framespersecond','resolution','ratio','generate_audio','seed','service_tier','execution_expires_after')
+            result['provider_metadata']={key:response[key] for key in allowed if key in response and response[key] is not None}
+            error=response.get('error')
+            if isinstance(error,dict):result['provider_error']=secret_store.redact({k:str(error[k])[:500] for k in ('code','message') if k in error})
+        return result
