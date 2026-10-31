@@ -39,15 +39,15 @@ def prepare_video(shot,config):
     prompt=str(shot.get('prompt','')).strip()
     if not prompt:raise ValueError('镜头提示词不能为空')
     resolution=config.get('resolution','720p');ratio=config.get('ratio','16:9');audio=config.get('audio',False)
-    if resolution not in ('480p','720p','1080p') or ratio not in ('16:9','9:16','1:1'):raise ValueError('未支持的Seedance分辨率或画幅')
+    if resolution not in ('480p','720p','1080p') or ratio not in ('16:9','9:16','1:1','3:4'):raise ValueError('未支持的Seedance分辨率或画幅')
     if type(audio) is not bool:raise ValueError('audio必须为布尔值')
     payload={'model':VIDEO_MODEL,'content':[{'type':'text','text':prompt}]+[{'type':'image_url','image_url':{'url':u},'role':'reference_image'} for u in refs],
              'resolution':resolution,'ratio':ratio,'duration':int(duration),'generate_audio':audio,'watermark':True,'output_format':'mp4',
              'omni_reference_task_type':'reference'}
     # Official output dimensions for this pinned model, not input image dimensions.
-    dimensions={'480p':{'16:9':(854,480),'9:16':(480,854),'1:1':(640,640)},
-                '720p':{'16:9':(1280,720),'9:16':(720,1280),'1:1':(960,960)},
-                '1080p':{'16:9':(1920,1080),'9:16':(1080,1920),'1:1':(1440,1440)}}
+    dimensions={'480p':{'16:9':(854,480),'9:16':(480,854),'1:1':(640,640),'3:4':(560,752)},
+                '720p':{'16:9':(1280,720),'9:16':(720,1280),'1:1':(960,960),'3:4':(834,1112)},
+                '1080p':{'16:9':(1920,1080),'9:16':(1080,1920),'1:1':(1440,1440),'3:4':(1248,1664)}}
     width,height=dimensions[resolution][ratio]
     tokens=Decimal(width*height*24*int(duration))/1024
     # Reserve one extra second for frame rounding; this is a budget estimate, not billing.

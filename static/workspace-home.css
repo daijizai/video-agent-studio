@@ -16,3 +16,11 @@ main{max-width:1600px;padding:28px 32px 40px;min-height:calc(100dvh - 125px)}
 
 .project.recent{border-color:#7a9060}.project-actions .open-project.primary{color:#182015}.project.recent .tag:not(.pin){color:var(--accent)}
 .workspace-shared{margin-bottom:28px}.shared-link{display:flex;justify-content:space-between;align-items:center;gap:20px;max-width:390px;padding:16px 18px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}.shared-link:hover{border-color:#83956c}.shared-link strong,.shared-link small{display:block}.shared-link small{font-size:13px;color:var(--muted);margin-top:3px}.shared-link>span:last-child{color:var(--accent);font-size:20px}
+
+/* The creation card lives in the same grid as existing projects. */
+.project-new{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-width:0;min-height:160px;width:100%;padding:20px;border:1px dashed #6e7d65;border-radius:9px;background:transparent;color:var(--accent);font-weight:600}
+.project-new:hover{border-color:var(--accent);background:#1c2420}.project-new-icon{display:grid;place-items:center;width:48px;height:48px;border:1px solid #879c74;border-radius:50%;font-size:29px;line-height:1;font-weight:400}
+.project-body h3{margin-bottom:20px}
+
+/* Compact utility navigation leaves the project grid as the main content. */
+.workspace-nav{display:flex;align-items:center;gap:18px}.resource-nav-link{display:inline-flex;align-items:center;gap:9px;min-height:40px;padding:7px 11px;border:1px solid #354137;border-radius:8px;background:#1b2420;color:#dbe9c3;font-size:13px;font-weight:600;transition:background .15s,border-color .15s}.resource-nav-link svg{color:#b7cb91;flex:none}.resource-nav-arrow{font-size:15px;color:#a4b692;margin-left:2px}.resource-nav-link:hover{background:#273329;border-color:#849a70}.workspace-nav-divider{width:1px;height:22px;background:var(--line)}@media(max-width:620px){.workspace-nav{gap:8px}.resource-nav-link{padding:6px 9px}.workspace-nav-divider{display:none}}@media(prefers-reduced-motion:reduce){.resource-nav-link{transition:none}}

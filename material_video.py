@@ -7,9 +7,33 @@ def digest(value):return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_a
 
 def prepare(state,shot,library):
     is_minimax=state.get('settings',{}).get('provider')=='minimax'
-    asset_library.validate_references(state,shot,library)
-    refs=shot.get('asset_references') or []
-    if not refs and not is_minimax:raise ValueError('请先绑定已验收素材')
+    mode=shot.get('video_input_mode','references')
+    if mode not in ('references','first_frame'):raise ValueError('视频输入方式无效')
+    planned_refs=shot.get('asset_references') or []
+    opening=None;opening_data=None
+    if mode=='first_frame':
+        import video_segments
+        frame,opening_data,info=video_segments.read_opening(library.root,state,shot,shot.get('opening_frame_id'))
+        if min(info['width'],info['height'])<300 or max(info['width'],info['height'])>(5760 if is_minimax else 6000):raise ValueError('开场画面尺寸不满足当前模型要求')
+        ratio=state.get('settings',{}).get('ratio','16:9')
+        try:rw,rh=map(int,ratio.split(':'))
+        except (ValueError,AttributeError):raise ValueError('请先设置明确的视频画幅') from None
+        if abs(info['width']/info['height']-rw/rh)>.01:raise ValueError('开场画面比例与项目画幅不一致，请重新准备或调整设置')
+        if shot.get('material_video_parent_task_id'):raise ValueError('首帧模式不能同时发送前置视频参考')
+        opening={k:copy.deepcopy(frame[k]) for k in ('id','url','sha256','width','height','source','source_task_id','source_video_sha256','source_frame_index') if k in frame}
+        refs=[]
+    else:
+        asset_library.validate_references(state,shot,library)
+        refs=planned_refs
+    if not refs and not is_minimax and not opening:raise ValueError('请先绑定已验收素材')
+    chosen={r['asset_id']:r['version'] for r in refs if r.get('kind')=='character'}
+    for ref in refs:
+        if ref.get('kind')=='scale':
+            asset=next((a for a in asset_library.assets(state) if a['id']==ref['asset_id']),None)
+            if not asset:raise ValueError('比例参考不存在')
+            expected=asset_library._version(asset,ref['version']).get('related_versions',[])
+            if ref.get('related_versions')!=expected or any(x['asset_id'] in chosen and chosen[x['asset_id']]!=x['version'] for x in expected):
+                raise ValueError('比例参考与角色版本不一致，请重新审阅')
     sources=[];data={};roles=[]
     for ref in refs:
         asset=next(a for a in asset_library.assets(state) if a['id']==ref['asset_id'])
@@ -20,8 +44,15 @@ def prepare(state,shot,library):
             if is_minimax and (max(info['width'],info['height'])>5760 or not .4<=info['width']/info['height']<=2.5):raise ValueError('MiniMax素材尺寸或比例不符合要求')
             marker='https://material-video.invalid/'+info['sha256']+'.'+info['extension']
             data[marker]='data:'+info['mime']+';base64,'+base64.b64encode(raw).decode()
-            sources.append({'asset_id':ref['asset_id'],'version':ref['version'],'name':ref['name'],'view_id':view['id'],'sha256':info['sha256']})
-            roles.append('第%d张参考图为%s，仅固定身份或物品结构，不照搬标准图姿态与背景。'%(len(sources),ref['name']))
+            usage={'scene':'environment','scale':'relative_scale'}.get(ref.get('kind'),'identity_or_object')
+            sources.append({'asset_id':ref['asset_id'],'version':ref['version'],'name':ref['name'],'kind':ref.get('kind','unknown'),
+                'usage':usage,'view_id':view['id'],'sha256':info['sha256']})
+            if ref.get('kind')=='scene':
+                roles.append('第%d张参考图为场景%s，用于参考空间布局、固定家具及材质光色，不作为首帧，不照搬其镜头构图。'%(len(sources),ref['name']))
+            elif ref.get('kind')=='scale':
+                roles.append('第%d张参考图为%s，仅参考角色与家具、道具的相对大小及接触关系；不作为首帧，不复制姿态或镜头构图。'%(len(sources),ref['name']))
+            else:
+                roles.append('第%d张参考图为%s，仅固定身份或物品结构，不照搬标准图姿态与背景。'%(len(sources),ref['name']))
     prompt=shot.get('material_video_prompt') or shot.get('prompt','')
     shot_language=shot.get('shot_language') or []
     if not isinstance(shot_language,list) or len(shot_language)>3:raise ValueError('镜头语言引用无效')
@@ -30,7 +61,10 @@ def prepare(state,shot,library):
         if len({x['kind'] for x in shot_language})!=len(shot_language):raise ValueError('每类镜头语言最多选一项')
         prompt+='\n本段镜头语言（多镜头时以各镜头明确安排为准）：'+' '.join(x['instruction'] for x in shot_language)
     style=state.get('project_style') or {}
-    prompt+='\n素材用途：'+''.join(roles)+'\n这些均为素材参考，不指定任何首帧或分镜图片。\n项目风格：'+(style.get('prompt') or style.get('description',''))
+    if opening:
+        prompt+='\n本次使用已审阅的开场图片作为首帧；没有额外传入角色、场景或比例参考图。\n项目风格：'+(style.get('prompt') or style.get('description',''))
+    else:
+        prompt+='\n素材用途：'+''.join(roles)+'\n这些均为素材参考，不指定任何首帧或分镜图片。\n项目风格：'+(style.get('prompt') or style.get('description',''))
     brief=state.get('project_brief') or {}
     video_style=brief.get('video_style','') if isinstance(brief,dict) else ''
     if video_style:prompt+='\n项目视频风格：'+video_style
@@ -78,6 +112,7 @@ def prepare(state,shot,library):
             if voice.get('asset_id'):snapshot.update(asset_id=voice['asset_id'],asset_version=voice['asset_version'])
             voice_snapshots.append(snapshot)
             prompt+='\n参考音频%d用于尽量保持%s的声音特征，仅借鉴音色和说话习惯，不重复参考音频中的台词。'%(len(voice_snapshots),'、'.join(roles))
+        if opening and voice_snapshots:raise ValueError('首帧模式不能同时发送声音参考，请先取消声音参考或改用素材参考模式')
         if len(voice_snapshots)>10 or total_duration>30:raise ValueError('声音参考最多10段、总时长最多30秒；请缩短或选择素材')
         if voice_snapshots:prompt+='\n按本段指定说话人说原文；声音参考可能含环境声，角色识别和生成效果须审阅。'
     parent_snapshot=None
@@ -101,7 +136,7 @@ def prepare(state,shot,library):
         parent_snapshot={'task_id':parent['id'],'provider_task_id':parent['provider_task_id'],'sha256':sha,'url':url,'duration':seconds,'width':width,'height':height,'usage':'extend_after'}
         prompt+='\n向后延长视频1，从视频1结束后的下一时刻开始叙事，延续同一人物、场景和声音，不重演上一段对白。输出本次新增的后续片段，不把原片段再次完整重放。'
 
-    baseline,quality_warnings=video_quality.select_reference(state,shot,library.root,parent_snapshot)
+    baseline,quality_warnings=(None,['首帧模式不发送画质参考视频或已绑定的角色/场景参考图，请检查草稿是否要求引用未发送的图片。']) if opening else video_quality.select_reference(state,shot,library.root,parent_snapshot)
     if baseline and baseline['status']=='shared_with_parent':
         prompt+='\n视频1同时作为画质基准和动作衔接参考，保留画面的自然锐度和材质。'
     elif baseline and baseline['status']=='sent':
@@ -110,6 +145,10 @@ def prepare(state,shot,library):
         quality_warnings.append('本次Prompt超过500字；方舟建议精简中文提示词，但不会自动删除内容。')
     spec={'duration':shot['duration'],'prompt':prompt,'reference_images':list(data)}
     prepared=providers.Provider('minimax').prepare(spec,config) if is_minimax else ark_provider.prepare_video(spec,config)
+    if opening:
+        prepared['payload']['content'].append({'type':'image_url','image_url':{'url':'opening:sha256:'+opening['sha256']},'role':'first_frame'})
+        prepared['payload']['ratio']='adaptive'
+        prepared['payload'].pop('omni_reference_task_type',None)
     if parent_snapshot:
         prepared['payload']['content'].append({'type':'video_url','video_url':{'url':parent_snapshot['url']},'role':'reference_video'})
         if not is_minimax:prepared['payload']['ratio']='adaptive';prepared['payload']['omni_reference_task_type']='extend'
@@ -117,14 +156,18 @@ def prepare(state,shot,library):
             total_seconds=math.ceil(parent_snapshot['duration'])+int(shot['duration'])+1
             if baseline and baseline['status']=='sent':total_seconds+=math.ceil(baseline['duration'])
             # Billing uses output dimensions, which may differ from the source video's.
-            basis=prepared['estimate_basis'];tokens=Decimal(basis['width']*basis['height']*24*total_seconds)/1024
+            # Adaptive extension inherits the input's aspect ratio, which can
+            # differ from the project's selected ratio. Reserve against the
+            # largest documented output area at that resolution.
+            adaptive_area={'480p':752*560,'720p':1112*834,'1080p':2206*946}[config.get('resolution','720p')]
+            tokens=Decimal(adaptive_area*24*total_seconds)/1024
             rate=Decimal('0.077' if config.get('resolution')=='1080p' else '0.07')
             prepared['estimated_cny']=float((tokens*rate/1000).quantize(Decimal('.01'),rounding=ROUND_UP))
             prepared['estimate_note']='保守沿用无视频输入单价，并计入前段视频时长与1秒余量；非实际折扣单价或账单'
     if baseline and baseline['status']=='sent':
         prepared['payload']['content'].append({'type':'video_url','video_url':{'url':baseline['url']},'role':'reference_video'})
         if not parent_snapshot and not is_minimax:
-            width,height=(1920,1080) if config.get('resolution')=='1080p' else (1280,720)
+            width,height=prepared['estimate_basis']['width'],prepared['estimate_basis']['height']
             tokens=Decimal(width*height*24*(math.ceil(baseline['duration'])+int(shot['duration'])+1))/1024
             rate=Decimal('0.077' if config.get('resolution')=='1080p' else '0.07')
             prepared['estimated_cny']=float((tokens*rate/1000).quantize(Decimal('.01'),rounding=ROUND_UP))
@@ -140,15 +183,15 @@ def prepare(state,shot,library):
     manifest=copy.deepcopy(prepared['payload'])
     audio_index=0
     for item in prepared['payload']['content']:
-        if item['type']=='image_url':item['image_url']['url']=data[item['image_url']['url']]
+        if item['type']=='image_url':item['image_url']['url']='data:image/png;base64,'+base64.b64encode(opening_data).decode() if item.get('role')=='first_frame' else data[item['image_url']['url']]
         elif item['type']=='audio_url':item['audio_url']['url']=voice_data[audio_index];audio_index+=1
     if len(json.dumps(prepared['payload']).encode())>64*1024*1024:raise ValueError('视频请求超过64MB')
-    snapshot={'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'quality_warnings':quality_warnings,'shot_language':copy.deepcopy(shot_language),**({'audio_mode':'provider_default'} if is_minimax else {})}
+    snapshot={'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'quality_warnings':quality_warnings,'shot_language':copy.deepcopy(shot_language),**({'opening_frame':opening,'planned_materials_not_sent':[{'name':r['name'],'version':r['version']} for r in planned_refs]} if opening else {}),**({'audio_mode':'provider_default'} if is_minimax else {})}
     return prepared,snapshot
 
 def operate(server,state,action,p):
     import video_segments
-    if action in ('init-segments','create-segment','save-segment','accept-segment','reject-candidate'):return video_segments.operate(server,state,action,p)
+    if action in ('init-segments','create-segment','save-segment','accept-segment','reject-candidate','add-opening-candidate','extract-opening-from-video','approve-opening'):return video_segments.operate(server,state,action,p)
     if action=='set-quality-baseline':
         task=next((t for t in state.get('tasks',[]) if t.get('id')==p.get('task_id')),None)
         _,sha=video_quality.accepted_file(state,server.ROOT,task)

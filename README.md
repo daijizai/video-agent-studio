@@ -44,9 +44,10 @@ PORT=8766 python3 server.py
 | --- | --- |
 | 制作总览 | 查看项目状态、预算占用与下一步入口 |
 | 剧本 | 编辑故事、人物和项目内容 |
-| 素材资产库 | 管理角色、物品、项目视觉风格、设计版本与已采用素材 |
+| 素材资产库 | 管理角色、物品、场景、比例参考、项目视觉风格、设计版本与已采用素材 |
 | 视频制作 | 编辑片段、预览完整输入、生成与查询候选、审阅播放和导出 |
-| 工具与设置 | 配置供应商、模型、密钥和项目预算；进入开发者诊断 |
+| 工具与设置 | 配置当前项目的模型和预算；进入开发者诊断 |
+| 工作空间 · 应用设置 | 管理所有项目共用的供应商密钥 |
 
 **分镜工作台页面及 Tab 已删除。** 旧 `#shots` 地址转到视频制作；历史镜头、图片和审批记录仍保留。内部规则、机器提示、请求诊断、ComfyUI 配置与版本审计从“工具与设置 → 开发者诊断”进入。
 
@@ -55,6 +56,8 @@ PORT=8766 python3 server.py
 1. **整理故事与素材设计。** Codex 按项目 Skill 准备剧本、角色、物品和风格；网页保存可读内容及版本。
 2. **准备素材母版。** 预览必要视图和费用，生成独立候选，人工审阅采用；补角度须绑定明确母版。已有图片也可上传补充。
 3. **编辑视频片段。** 填写完整 Prompt、时长、素材引用、声音参考、镜头语言与前置视频。素材参考直出视频路径不要求先生成分镜关键帧，也不会把素材图偷偷作为首帧。
+
+   如明确选择首帧路径，先在片段页审阅并采用开场候选。当前首帧模式只发送这张首帧；已绑定的其他图片、声音和视频参考不随该次请求发送。画幅由首帧自适应，实际以结果为准；可在预览中核对输入后再决定生成。
 4. **预览并确认本次输入。** 核对实际模型、完整 Prompt、引用版本与费用预占，再确认生成。修改内容、模型或引用后须重新确认；预算授权与内容确认分别校验。
 5. **查询、审阅和交付。** 原任务返回后归档视频，保留候选及不可变输入快照；选择连播版本并人工验收。生成完成不等于质量通过。
 
@@ -198,7 +201,7 @@ MiniMax 与页面删除这一版已通过261项 Python 回归、10项 JavaScript
 
 - 接入：[MiniMax](docs/MINIMAX_VIDEO.md) · [方舟](docs/ARK_INTEGRATION.md) · [Wan3](docs/WAN3_INTEGRATION.md)
 - 素材：[素材库](docs/MATERIAL_LIBRARY.md) · [设计与视图合同](docs/MATERIAL_RECIPES.md) · [图片修复](docs/SEEDREAM_EDIT_ADAPTER.md)
-- 制作 Skill：[剧本](skills/frame-screenplay/SKILL.md) · [角色](skills/frame-character-assets/SKILL.md) · [物品](skills/frame-object-assets/SKILL.md) · [视觉风格](skills/frame-visual-style/SKILL.md) · [素材参考视频提示词](skills/frame-video-prompts/SKILL.md)
+- 制作 Skill：[剧本](skills/frame-screenplay/SKILL.md) · [角色](skills/frame-character-assets/SKILL.md) · [物品](skills/frame-object-assets/SKILL.md) · [场景](skills/frame-scene-assets/SKILL.md) · [比例参考](skills/frame-scale-reference/SKILL.md) · [视觉风格](skills/frame-visual-style/SKILL.md) · [素材参考视频提示词](skills/frame-video-prompts/SKILL.md)
 - 记录：[验证历史与限制](docs/VALIDATION.md) · [失败经验](docs/PRODUCTION_LESSONS.md) · [FFmpeg](docs/FFMPEG_SETUP.md)
 
 其他文档保留各次迭代的时间与上下文，其中旧默认模型或页面描述不代表当前产品入口。

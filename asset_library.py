@@ -1,4 +1,4 @@
-"""Project-isolated character/object originals and immutable versions; no generation.
+"""Project-isolated character/object/scene originals and immutable versions; no generation.
 
 Standalone service: the host supplies its existing SQLite file and global lock.
 No schema/data/file changes occur on import or catalog reads.
@@ -25,12 +25,14 @@ MAX_BYTES = 12 * 1024 * 1024
 MAX_PIXELS = 16_000_000
 MAX_SIDE = 8192
 MAX_DECODED = 68 * 1024 * 1024
-KINDS = ('character', 'object')
+KINDS = ('character', 'object', 'scene', 'scale')
 VIEWS = {
     'character': {'portrait': '头像正面', 'head_front': '头部正面', 'head_side': '头部侧面',
                   'head_back': '头部背面', 'body_front': '全身正面', 'body_side': '全身侧面',
                   'body_back': '全身背面', 'three_quarter': '四分之三视角'},
-    'object': {'main': '外观主图', 'front': '正面', 'side': '侧面', 'back': '背面', 'detail': '细节'}
+    'object': {'main': '外观主图', 'front': '正面', 'side': '侧面', 'back': '背面', 'detail': '细节'},
+    'scene': {'scene_main': '场景主图'},
+    'scale': {'scale_main': '比例参考图'}
 }
 EXTENSIONS = {'png': 'image/png', 'jpg': 'image/jpeg', 'webp': 'image/webp'}
 
@@ -374,6 +376,10 @@ class AssetLibrary:
             version=_version(asset)
             asset['design_summary']=asset_templates.public_design(asset_templates.blueprint(state,asset,version))
             for candidate in asset['versions']:
+                for view in candidate.get('views', []):
+                    source=(state.get('asset_view_sources') or {}).get(view.get('id'))
+                    if source and source.get('sha256')==view.get('sha256'):
+                        view['source_info']=copy.deepcopy(source)
                 candidate['design_summary']=asset_templates.public_design(asset_templates.blueprint(state,asset,candidate))
                 candidate['production_status']=asset_templates.review_status(state,asset,candidate)
                 if candidate['design_summary']['ready']:
@@ -470,6 +476,19 @@ class AssetLibrary:
                 raise
 
     def _mutate(self, state, action, payload, created):
+        if action == 'record-codex-source':
+            asset=self._asset(state,payload.get('asset_id'))
+            ids=payload.get('view_ids')
+            if not isinstance(ids,list) or not ids or len(ids)>30 or any(not isinstance(i,str) for i in ids) or len(ids)!=len(set(ids)):
+                raise ValueError('请选择需要标记来源的图片')
+            views={v['id']:v for version in asset['versions'] for v in version.get('views',[])}
+            if any(i not in views for i in ids):raise ValueError('图片不属于当前素材')
+            annotations=state.setdefault('asset_view_sources',{})
+            for view_id in ids:
+                view=views[view_id];self._checked_view(state['project_id'],view)
+                annotations[view_id]={'label':'Codex · OpenAI 生图工具','sha256':view['sha256'],
+                    'note':'用户确认并由 Codex 对话生成；具体模型名称未记录','recorded_at':_now()}
+            return
         if action == 'style':
             current=state.get('project_style') or {}; prompt=_text(payload.get('description',''),'风格描述',2000)
             if 'style_prompt' in payload:
@@ -515,11 +534,12 @@ class AssetLibrary:
         if action == 'create':
             kind = payload.get('kind')
             if kind not in KINDS:
-                raise ValueError('素材类型仅支持角色或物品')
+                raise ValueError('素材类型仅支持角色、物品、场景或比例参考')
             version = {'version': 1, 'name': _text(payload.get('name'), '名称', 80, True),
                 'summary': _text(payload.get('summary', ''), '简要设定'), 'role': _text(payload.get('role', ''), '角色定位', 160),
                 'variant': _text(payload.get('variant', ''), '外观版本说明', 160), 'views': [], 'created_at': _now(), 'origin': 'user_text'}
             version['related_asset_ids'] = self._related(state,payload.get('related_asset_ids',[]))
+            if kind=='scale':version['related_versions']=self._related_versions(state,version['related_asset_ids'])
             state.setdefault('material_assets', []).append({'id': uuid.uuid4().hex, 'kind': kind,
                 'latest_version': 1, 'adopted_version': None, 'versions': [version]})
             return
@@ -545,9 +565,11 @@ class AssetLibrary:
             for field, limit, required in [('name',80,True), ('summary',4000,False), ('role',160,False), ('variant',160,False)]:
                 if field in payload:
                     version[field] = _text(payload[field], field, limit, required)
-            if 'related_asset_ids' in payload:version['related_asset_ids']=self._related(state,payload['related_asset_ids'])
-            if any(version.get(k) != current.get(k) for k in ('name', 'summary', 'role', 'variant','related_asset_ids')):
-                if any(version.get(k)!=current.get(k) for k in ('summary','variant')):
+            if 'related_asset_ids' in payload:
+                version['related_asset_ids']=self._related(state,payload['related_asset_ids'])
+                if asset['kind']=='scale':version['related_versions']=self._related_versions(state,version['related_asset_ids'])
+            if any(version.get(k) != current.get(k) for k in ('name', 'summary', 'role', 'variant','related_asset_ids','related_versions')):
+                if any(version.get(k)!=current.get(k) for k in ('summary','variant')) or (asset['kind']=='scale' and version.get('related_versions')!=current.get('related_versions')):
                     version['views']=[]
                 _append(asset, version)
         elif action in ('upload', 'import-existing'):
@@ -575,7 +597,8 @@ class AssetLibrary:
             view = {'id': image_id, 'tag': tag, 'label': VIEWS[asset['kind']][tag],
                 'url': f"/asset-media/{state['project_id']}/{image_id}.{info['extension']}", 'imported_at': _now(), 'origin': origin, **info}
             version = copy.deepcopy(_version(asset))
-            identity=asset_templates.normalize_profile(version.get('design_profile',{}),asset['kind'])['master_plan'].get('identity_tag','portrait' if asset['kind']=='character' else 'main')
+            default_identity={'character':'portrait','object':'main','scene':'scene_main','scale':'scale_main'}[asset['kind']]
+            identity=asset_templates.normalize_profile(version.get('design_profile',{}),asset['kind'])['master_plan'].get('identity_tag',default_identity)
             if tag == identity:
                 version['views']=[]
             version['views'] = [v for v in version.get('views', []) if v['tag'] != tag] + [view]
@@ -608,6 +631,15 @@ class AssetLibrary:
             raise ValueError('关联角色须来自当前项目')
         return list(dict.fromkeys(values))
 
+    def _related_versions(self,state,values):
+        if len(values)<2:raise ValueError('比例参考须关联至少两个已采用角色')
+        by_id={a['id']:a for a in assets(state)};result=[]
+        for aid in values:
+            asset=by_id[aid];version=asset.get('adopted_version')
+            if not version:raise ValueError('关联角色须先审阅采用')
+            result.append({'asset_id':aid,'version':version})
+        return result
+
     def _bind(self, state, action, payload):
         shot = next((s for s in state.get('shots', []) if s['id'] == payload.get('shot_id')), None)
         if shot is None:
@@ -637,9 +669,11 @@ class AssetLibrary:
                 if 'body' in required and not status['body_reviewed']:
                     raise ValueError('全身正面母版尚未按当前规范审阅')
                 self._checked_view(state['project_id'], view); views.append(copy.deepcopy(view))
-            refs.append({'asset_id': asset['id'], 'kind': asset['kind'], 'version': number,
+            ref={'asset_id': asset['id'], 'kind': asset['kind'], 'version': number,
                 'name': version['name'], 'variant': version.get('variant', ''), 'views': views,
-                'production_review':asset_templates.review_record(state,asset,version)})
+                'production_review':asset_templates.review_record(state,asset,version)}
+            if asset['kind']=='scale':ref['related_versions']=copy.deepcopy(version.get('related_versions',[]))
+            refs.append(ref)
         if sum(len(ref.get('views',[])) for ref in refs)>9:raise ValueError('本镜最多选择9张素材参考，另为项目风格保留1张')
         if refs != old:
             shot['asset_references'] = refs

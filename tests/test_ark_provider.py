@@ -16,6 +16,13 @@ class ArkContracts(unittest.TestCase):
    basis=r['estimate_basis'];self.assertEqual((basis['width'],basis['height']),(width,height));self.assertEqual(basis['reserved_seconds'],31)
    self.assertGreaterEqual(r['estimated_cny'],width*height*24*30/1024*rate/1000)
   self.assertEqual(a.prepare_video(shot,{'resolution':'480p','ratio':'1:1'})['estimate_basis']['width'],640)
+ def test_seedance_three_four_payload_and_estimate_dimensions(self):
+  shot={'duration':14,'prompt':'bedroom','reference_images':['https://example.com/cat.png','https://example.com/creature.png']}
+  for resolution,width,height in [('480p',560,752),('720p',834,1112),('1080p',1248,1664)]:
+   result=a.prepare_video(shot,{'resolution':resolution,'ratio':'3:4'})
+   self.assertEqual(result['payload']['ratio'],'3:4')
+   self.assertEqual((result['estimate_basis']['width'],result['estimate_basis']['height']),(width,height))
+   self.assertEqual(len(result['payload']['content']),3);self.assertFalse(result['network_called'])
  def test_seedance_validates_supported_subset(self):
   shot={'duration':5,'prompt':'scene'}
   for change in [{'duration':3},{'duration':31},{'duration':4.5},{'prompt':''},{'reference_images':['oss://dashscope-instant/a']},{'reference_images':['https://example.com/video.mp4']},{'reference_images':[None]},{'reference_images':['https://example.com/a']*31}]:

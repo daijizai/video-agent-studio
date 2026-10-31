@@ -67,13 +67,69 @@ class AssetFixture(unittest.TestCase):
 
 
 class AssetTests(AssetFixture):
+    def test_scale_reference_pins_roles_and_is_never_a_first_frame(self):
+        from unittest.mock import Mock
+        import video_segments,material_video
+        chars=[]
+        for name in ('甲','乙'):
+            role=self.upload(self.create('character',name),'portrait')
+            role=self.upload(role,'body_front')
+            self.action('adopt',asset_id=role['id'],version=role['latest_version'])
+            chars.append(role)
+        with self.assertRaisesRegex(ValueError,'至少两个'):
+            self.action('create',kind='scale',name='比例',related_asset_ids=[chars[0]['id']])
+        result=self.action('create',kind='scale',name='比例',related_asset_ids=[r['id'] for r in chars])
+        scale=self.install_profile(result['assets'][-1]['id'])
+        scale=self.upload(scale,'scale_main')
+        self.action('adopt',asset_id=scale['id'],version=scale['latest_version'])
+        state=self.state();state['video_segments']=[{'id':'seg','name':'片段','duration':6,'material_video_prompt':'互动','asset_references':[],'draft_revision':1}]
+        host=Mock();host.ROOT=self.root;host.material_service.return_value=self.service
+        ids=[r['id'] for r in chars]+[scale['id']]
+        video_segments.operate(host,state,'save-segment',{'segment_id':'seg','draft':{'reference_asset_ids':ids}})
+        prepared,snapshot=material_video.prepare(state,state['video_segments'][0],self.service)
+        self.assertEqual(snapshot['materials'][-1]['usage'],'relative_scale')
+        self.assertIn('相对大小',prepared['payload']['content'][0]['text'])
+        self.assertTrue(all(x.get('role')=='reference_image' for x in prepared['payload']['content'][1:]))
+        ref=state['video_segments'][0]['asset_references'][-1];ref['related_versions'][0]['version']+=1
+        with self.assertRaisesRegex(ValueError,'版本不一致'):material_video.prepare(state,state['video_segments'][0],self.service)
+
+    def test_scene_requires_human_adoption_and_binds_as_environment_reference(self):
+        from unittest.mock import Mock
+        import video_segments,material_video
+        asset=self.upload(self.create('scene','卧室'),'scene_main')
+        state=self.state();state['video_segments']=[{'id':'seg','name':'片段','duration':6,'material_video_prompt':'在卧室互动','asset_references':[],'draft_revision':1}]
+        host=Mock();host.ROOT=self.root;host.material_service.return_value=self.service
+        with self.assertRaisesRegex(ValueError,'已采用素材'):
+            video_segments.operate(host,state,'save-segment',{'segment_id':'seg','draft':{'reference_asset_ids':[asset['id']]}})
+        self.action('adopt',asset_id=asset['id'],version=asset['latest_version'])
+        state=self.state();state['video_segments']=[{'id':'seg','name':'片段','duration':6,'material_video_prompt':'在卧室互动','asset_references':[],'draft_revision':1}]
+        video_segments.operate(host,state,'save-segment',{'segment_id':'seg','draft':{'reference_asset_ids':[asset['id']]}})
+        prepared,snapshot=material_video.prepare(state,state['video_segments'][0],self.service)
+        self.assertEqual(snapshot['materials'][0]['name'],'卧室')
+        self.assertEqual(snapshot['materials'][0]['usage'],'environment')
+        self.assertEqual(prepared['payload']['content'][1]['role'],'reference_image')
+        self.assertIn('参考空间布局',prepared['payload']['content'][0]['text'])
+        self.assertNotIn('first_frame',str(prepared['payload']))
+        self.assertEqual(self.state()['tasks'],[])
+
+    def test_codex_source_records_verified_view_without_rewriting_version(self):
+        asset=self.upload(self.create()); original=copy.deepcopy(self.state()['material_assets'][0]['versions'][-1]); view=original['views'][0]
+        result=self.action('record-codex-source',asset_id=asset['id'],view_ids=[view['id']])
+        stored=self.state()['material_assets'][0]['versions'][-1]
+        self.assertEqual(stored,original)
+        shown=next(a for a in result['assets'] if a['id']==asset['id'])['versions'][-1]['views'][0]
+        self.assertEqual(shown['source_info']['label'],'Codex · OpenAI 生图工具')
+        self.assertEqual(shown['source_info']['sha256'],view['sha256'])
+        with self.assertRaises(ValueError):self.action('record-codex-source',asset_id=asset['id'],view_ids=['unknown'])
+        self.assertFalse(self.state().get('image_tasks'))
+
     def test_legacy_read_is_no_migration_and_only_two_types(self):
         catalog=self.service.catalog(1);self.assertEqual(len(catalog['assets']),1)
         role=catalog['assets'][0];self.assertEqual(role['kind'],'character');self.assertEqual(role['latest_version'],3)
         self.assertEqual(role['versions'][0]['summary'],'短发，灰夹克');self.assertEqual(role['versions'][0]['views'],[])
         self.assertEqual(self.state()['characters'],self.initial['characters']);self.assertNotIn('material_assets',self.state())
         self.assertEqual(catalog['revision'],0)
-        with self.assertRaises(ValueError):self.create('scene')
+        with self.assertRaises(ValueError):self.create('unknown')
 
     def test_import_version_adopt_history_and_original_are_immutable(self):
         asset=self.create();first=copy.deepcopy(asset['versions'][0])

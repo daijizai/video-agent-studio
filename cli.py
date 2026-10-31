@@ -95,7 +95,8 @@ def main():
                     if args.minimax_model:raise ValueError('--model仅用于MiniMax配置')
                     resolution=args.resolution or '720p'
                     if resolution not in ('480p','720p','1080p'):raise ValueError('此供应商分辨率请选择480p / 720p / 1080p')
-                    if args.ratio not in ('16:9','9:16','1:1'):raise ValueError('此CLI供应商配置支持16:9 / 9:16 / 1:1画幅')
+                    supported=('16:9','9:16','1:1','3:4') if args.provider=='seedance25' else ('16:9','9:16','1:1')
+                    if args.ratio not in supported:raise ValueError('当前供应商支持的画幅：'+' / '.join(supported))
                     payload.update(resolution=resolution)
                     if args.audio is not None:payload['audio']=args.audio
                 if args.image_model:payload['image_model']=args.image_model

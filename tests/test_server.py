@@ -80,6 +80,19 @@ class StudioTests(unittest.TestCase):
             with server.db() as c:
                 for row in c.execute('SELECT body FROM state UNION ALL SELECT body FROM revisions'):
                     self.assertNotIn(token,row[0])
+    def test_workspace_credentials_are_global_write_only_and_do_not_read_project(self):
+        import os
+        token='fake-private-workspace-test-key'
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ,{'STUDIO_SECRET_FILE':str(Path(tmp)/'credentials.json')}):
+            with patch.object(server,'read',side_effect=AssertionError('must not read project state')):
+                code,response=self.post('workspace/credentials',{'provider':'wan3','value':token})
+                self.assertEqual(code,200);self.assertNotIn(token,json.dumps(response))
+                with urllib.request.urlopen(self.url+'/api/workspace/providers') as r:entries=json.load(r)
+            self.assertTrue(next(e for e in entries if e['id']=='wan3')['credential_present'])
+            self.assertTrue(next(e for e in entries if e['id']=='wan3-prime')['credential_present'])
+            self.assertNotIn(token,json.dumps(entries));self.assertTrue(all('last_execution_status' not in e for e in entries))
+            self.assertEqual(self.post('workspace/credentials',{'provider':'unknown','value':token})[0],400)
+
     def test_optimistic_revision_guard(self):
         stale=server.read()
         code,fresh=self.post('save',{'script':'first edit','project_id':stale['project_id'],'revision':stale['revision']})

@@ -9,14 +9,15 @@ const MaterialLibrary = (() => {
   const displayVersion=asset=>{const v=version(asset);return {...v,views:asset.kind==='character'?v.views.filter(view=>['body_front','body_side','body_back'].includes(view.tag)):v.views}};
   const adoptedSource=asset=>{const latest=version(asset),adopted=asset.adopted_version?version(asset,asset.adopted_version):null;return adopted&&asset.adopted_design_matches_latest!==false&&latest.summary===adopted.summary&&(latest.variant||'')===(adopted.variant||'')?adopted:null};
   const viewLabel=v=>({portrait:'头像正面',head_front:'头像正面',head_side:'头像侧面',head_back:'头像背面',body_front:'全身正面',body_side:'全身侧面',body_back:'全身背面'}[v.tag]||v.label);
-  const defaultView=views=>views.find(v=>v.tag==='body_front')||views.find(v=>v.tag?.startsWith('body_'))||views.find(v=>v.tag==='main')||views[0];
-  function coverageHTML(asset,v,catalog){
-    const labels=catalog.view_labels[asset.kind]||{},tags=asset.kind==='character'?['body_front','body_side','body_back']:(asset.available_view_tags||Object.keys(labels));
-    const present=new Set(v.views.map(x=>x.tag==='portrait'?'head_front':x.tag));
-    const available=[...new Set(sortViews(v.views).map(x=>viewLabel(x)))];
-    return `<div class="material-coverage"><p><span>已有视图</span>${e(available.join('、')||'暂无')}</p><p><span>尚缺视图</span>${e(tags.filter(t=>!present.has(t)).map(t=>viewLabel({tag:t,label:labels[t]||t})).join('、')||'已齐全')}</p></div>`;
+  const defaultView=views=>views.find(v=>v.tag==='body_front')||views.find(v=>v.tag?.startsWith('body_'))||views.find(v=>v.tag==='main'||v.tag==='scene_main'||v.tag==='scale_main')||views[0];
+  function missingViews(asset,v,catalog){
+    const labels=catalog.view_labels[asset.kind]||{};
+    const required=asset.kind==='character'?['body_front','body_side','body_back']:Object.keys(v.design_profile?.view_recipes||Object.fromEntries((asset.available_view_tags||Object.keys(labels)).map(tag=>[tag,true])));
+    const present=new Set((v.views||[]).map(view=>view.tag));
+    return required.filter(tag=>!present.has(tag)).map(tag=>viewLabel({tag,label:labels[tag]||tag}));
   }
-  const typeName=kind=>kind==='character'?'角色':'物品';
+  const typeName=kind=>({character:'角色',object:'物品',scene:'场景',scale:'比例参考'}[kind]||'素材');
+  function relatedVersions(v,catalog){return (v.related_versions||[]).map(r=>{const a=catalog.assets.find(x=>x.id===r.asset_id),linked=a&&version(a,r.version);return (linked?.name||'未知角色')+' v'+r.version}).join('、')}
   const taskName={reserved:'计划已确认 · 等待执行',submitting:'提交中 · 请勿重复',queued:'排队中',running:'生成中',unknown:'提交结果待核对',completed:'生成已完成',failed:'生成失败',rejected:'请求未受理',cancelled:'未提交计划已取消'};
   let active=null,shotCatalog=null;
   function dialog(title,body){
@@ -49,18 +50,28 @@ const MaterialLibrary = (() => {
     const response=await fetch('/api/assets/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_id:catalog.project_id,revision:catalog.revision,...payload})});
     const data=await response.json();if(!response.ok)throw Error(data.error||'素材操作未完成');return data;
   }
-  function openImage(view,title){
-    const node=dialog(title,`<p>${e(viewLabel(view))} · ${view.width} × ${view.height}</p><div class="shot-actions"><button data-fit>适应窗口</button><button data-original>原尺寸</button></div><div class="asset-large-stage"><img src="${e(view.url)}" alt="${e(title+' '+view.label)}"></div>`);
-    node.classList.add('asset-lightbox');const img=node.querySelector('img');
-    node.querySelector('[data-original]').onclick=()=>{img.style.maxWidth='none';img.style.maxHeight='none';img.style.width=view.width+'px'};
-    node.querySelector('[data-fit]').onclick=()=>{img.style.maxWidth='100%';img.style.maxHeight='65dvh';img.style.width=''};
+  function openImage(view,title,views=[view]){
+    let index=Math.max(0,views.indexOf(view));
+    const node=dialog(title,`<p data-image-info aria-live="polite"></p><div class="shot-actions"><button data-fit>适应窗口</button><button data-original>原尺寸</button></div><div class="asset-image-browser"><button type="button" class="asset-image-prev" data-prev aria-label="上一张图片">‹</button><div class="asset-large-stage"><img alt=""></div><button type="button" class="asset-image-next" data-next aria-label="下一张图片">›</button></div>`);
+    node.classList.add('asset-lightbox');const img=node.querySelector('img'),stage=node.querySelector('.asset-large-stage'),prev=node.querySelector('[data-prev]'),next=node.querySelector('[data-next]');
+    const fit=()=>{img.style.maxWidth='100%';img.style.maxHeight='65dvh';img.style.width=''};
+    const render=()=>{
+      const current=views[index];img.src=current.url;img.alt=title+' '+viewLabel(current);fit();stage.scrollTop=0;stage.scrollLeft=0;
+      node.querySelector('[data-image-info]').textContent=`${viewLabel(current)} · ${current.width} × ${current.height} · ${index+1} / ${views.length}`;
+      prev.disabled=index===0;next.disabled=index===views.length-1;
+    };
+    const move=delta=>{const target=index+delta;if(target<0||target>=views.length)return;index=target;render()};
+    prev.onclick=()=>move(-1);next.onclick=()=>move(1);
+    node.addEventListener('keydown',event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();move(event.key==='ArrowLeft'?-1:1)}});
+    node.querySelector('[data-original]').onclick=()=>{img.style.maxWidth='none';img.style.maxHeight='none';img.style.width=views[index].width+'px'};
+    node.querySelector('[data-fit]').onclick=fit;render();
   }
-  function viewsHTML(v){return (v.views||[]).map(view=>`<div class="asset-view"><button type="button" data-open-image="${e(view.id)}" aria-label="放大${e(viewLabel(view))}"><img src="${e(view.url)}" alt="${e(viewLabel(view))}" loading="lazy"></button><small>${e(viewLabel(view))} · ${view.width} × ${view.height}</small></div>`).join('')}
-  function bindImages(node,v,title){node.querySelectorAll('[data-open-image]').forEach(b=>b.onclick=()=>openImage(v.views.find(x=>x.id===b.dataset.openImage),title))}
+  function viewsHTML(v){return (v.views||[]).map(view=>`<div class="asset-view"><button type="button" data-open-image="${e(view.id)}" aria-label="放大${e(viewLabel(view))}"><img src="${e(view.url)}" alt="${e(viewLabel(view))}" loading="lazy"></button><small>${e(viewLabel(view))} · ${view.width} × ${view.height}${view.source_info?' · '+e(view.source_info.label):''}</small></div>`).join('')}
+  function bindImages(node,v,title){node.querySelectorAll('[data-open-image]').forEach(b=>b.onclick=()=>openImage(v.views.find(x=>x.id===b.dataset.openImage),title,v.views))}
   function editor(catalog,asset,onDone){
     const current=asset?version(asset):{name:'',summary:'',role:'',variant:'',related_asset_ids:[]};
     const roles=catalog.assets.filter(a=>a.kind==='character');
-    const node=dialog(asset?'编辑'+typeName(asset.kind)+'设定':'新增角色或物品',`<form data-editor>${asset?'':`<label class="field" for="material-kind">素材类型</label><select id="material-kind"><option value="character">角色</option><option value="object">物品</option></select>`}<label class="field" for="material-name">名称</label><input id="material-name" maxlength="80" required value="${e(current.name)}"><label class="field" for="material-summary">简要设定</label><textarea id="material-summary" rows="5" placeholder="写下外貌、性格或物品的形状与材质，不需要写提示词。">${e(current.summary)}</textarea><label class="field" for="material-variant">外观版本说明（可选）</label><input id="material-variant" maxlength="160" placeholder="例如：夜班制服 / 旧款黄铜" value="${e(current.variant)}"><details><summary>故事关系（可选）</summary><label class="field" for="material-role">故事中的作用</label><input id="material-role" maxlength="160" value="${e(current.role)}">${roles.length?`<p class="muted">与哪些角色有关？物品始终独立保存。</p>${roles.map(a=>`<label class="asset-choice"><input type="checkbox" data-related value="${e(a.id)}" ${(current.related_asset_ids||[]).includes(a.id)?'checked':''}>${e(version(a).name)}</label>`).join('')}`:''}</details><div class="shot-actions"><button class="primary" type="submit">${asset?'保存为新版本':'创建素材'}</button></div><p class="muted">保存设定不会发起生成，也不会自动采用候选图片。外观设定改动会重新开始候选视图，旧图保留在历史版本。</p></form>`);
+    const node=dialog(asset?'编辑'+typeName(asset.kind)+'设定':'新增素材',`<form data-editor>${asset?'':`<label class="field" for="material-kind">素材类型</label><select id="material-kind"><option value="character">角色</option><option value="object">物品</option><option value="scene">场景</option><option value="scale">比例参考</option></select>`}<label class="field" for="material-name">名称</label><input id="material-name" maxlength="80" required value="${e(current.name)}"><label class="field" for="material-summary">简要设定</label><textarea id="material-summary" rows="5" placeholder="写下外貌、性格或物品的形状与材质，不需要写提示词。">${e(current.summary)}</textarea><label class="field" for="material-variant">外观版本说明（可选）</label><input id="material-variant" maxlength="160" placeholder="例如：夜班制服 / 旧款黄铜" value="${e(current.variant)}"><details><summary>故事关系（可选）</summary><label class="field" for="material-role">故事中的作用</label><input id="material-role" maxlength="160" value="${e(current.role)}">${roles.length?`<p class="muted">与哪些角色有关？物品始终独立保存。</p>${roles.map(a=>`<label class="asset-choice"><input type="checkbox" data-related value="${e(a.id)}" ${(current.related_asset_ids||[]).includes(a.id)?'checked':''}>${e(version(a).name)}</label>`).join('')}`:''}</details><div class="shot-actions"><button class="primary" type="submit">${asset?'保存为新版本':'创建素材'}</button></div><p class="muted">保存设定不会发起生成，也不会自动采用候选图片。外观设定改动会重新开始候选视图，旧图保留在历史版本。</p></form>`);
     node.querySelector('form').onsubmit=event=>{event.preventDefault();safe(node,async()=>{
       const payload={name:node.querySelector('#material-name').value,summary:node.querySelector('#material-summary').value,variant:node.querySelector('#material-variant').value,role:node.querySelector('#material-role').value,related_asset_ids:[...node.querySelectorAll('[data-related]:checked')].map(x=>x.value)};
       if(asset)payload.asset_id=asset.id;else payload.kind=node.querySelector('#material-kind').value;
@@ -77,21 +88,31 @@ const MaterialLibrary = (() => {
     if(!asset.adopted_version)return '设计与母版待审阅';
     if(!status.reviewed_tags?.length)return '历史采用 · 当前制作规范待复核';
     if(asset.kind==='object')return '物品主图/所选视图已人工审阅';
+    if(asset.kind==='scene')return '场景主图已人工审阅';
+    if(asset.kind==='scale')return '比例参考图已人工审阅';
     if(!status.identity_reviewed)return '身份母版待建立';
     if(!status.body_reviewed)return '身份母版已审阅 · 全身正面待建立';
     return status.multiview_reviewed?'全身三视图已人工审阅':'基础母版已审阅 · 全身视图待补齐';
   }
+  function fullyReviewed(asset,v,catalog){
+    if(!asset.adopted_version||asset.adopted_version!==asset.latest_version||asset.adopted_design_matches_latest===false)return false;
+    const status=asset.production_status||{};
+    const required=asset.kind==='character'?['body_front','body_side','body_back']:(asset.available_view_tags||[]);
+    return !!required.length && !missingViews(asset,v,catalog).length && !!status.base_ready && required.every(tag=>(status.reviewed_tags||[]).includes(tag));
+  }
   function choosePlan(catalog,asset,onDone){
-    const master=asset.master_plan?.identity_tag||(asset.kind==='character'?'portrait':'main'),structure=asset.master_plan?.structure_tag||'body_front',adopted=adoptedSource(asset);
+    const master=asset.master_plan?.identity_tag||(asset.kind==='character'?'portrait':asset.kind==='scene'?'scene_main':asset.kind==='scale'?'scale_main':'main'),structure=asset.master_plan?.structure_tag||'body_front',adopted=adoptedSource(asset);
     const status=asset.production_status||{},reviewed=status.reviewed_tags||[];
     const source=adopted?.views.find(v=>v.tag===master&&reviewed.includes(master));
     const bodyReady=!!(source&&reviewed.includes(structure));
     const allowed=tag=>tag===master||!!(source&&(asset.kind==='object'||!['body_side','body_back','three_quarter'].includes(tag)||bodyReady)&&(tag!=='body_back'||reviewed.includes('body_side')));
     const defaultTag=!source?master:asset.kind==='character'&&!bodyReady?structure:null;
     const labels=catalog.view_labels[asset.kind];
-    const node=dialog('选择需要的独立视图',`<p>${e(version(asset).name)} · 当前设定 v${asset.latest_version}</p><p class="muted">${asset.kind==='character'?'按全身正面、侧面、背面顺序制作；先审阅采用侧面，再生成背面。头像不再单独生成；全身图头部足够清晰时可裁取使用，当前需另行处理裁切。':'先采用物品主图，再按需要补充侧面、背面或细节。'}</p>${source?`<p class="asset-pause">扩展视图基于已采用 v${adopted.version}。背面参考已采用的全身正面和侧面。</p>`:''}<fieldset><legend>本次生成</legend>${sortLabels(labels).filter(([tag])=>(asset.available_view_tags||[]).includes(tag)&&(asset.kind!=='character'||tag.startsWith('body_'))).map(([tag,label])=>`<label class="asset-choice"><input type="checkbox" data-view-tag value="${tag}" ${tag===defaultTag?'checked':''} ${!allowed(tag)?'disabled':''}>${e(viewLabel({tag,label}))}${tag===master?' · 母版':''}</label>`).join('')}</fieldset><button class="primary" data-preview>预览本次生成计划</button>`);
+    const node=dialog('选择需要的独立视图',`<p>${e(version(asset).name)} · 当前设定 v${asset.latest_version}</p><p class="muted">${asset.kind==='character'?'按全身正面、侧面、背面顺序制作；先审阅采用侧面，再生成背面。头像不再单独生成；全身图头部足够清晰时可裁取使用，当前需另行处理裁切。':'先采用物品主图，再按需要补充侧面、背面或细节。'}</p>${source?`<p class="asset-pause">扩展视图基于已采用 v${adopted.version}。背面参考已采用的全身正面和侧面。</p>`:''}<label class="field" for="material-plan-model">图片生成方式</label><select id="material-plan-model">${Object.entries(catalog.models||{}).map(([id,label])=>`<option value="${e(id)}" ${id===catalog.default_model?'selected':''}>${e(label)}</option>`).join('')}<option value="codex-dialog">Codex · 对话生成</option></select><fieldset><legend>本次生成</legend>${sortLabels(labels).filter(([tag])=>(asset.available_view_tags||[]).includes(tag)&&(asset.kind!=='character'||tag.startsWith('body_'))).map(([tag,label])=>`<label class="asset-choice"><input type="checkbox" data-view-tag value="${tag}" ${tag===defaultTag?'checked':''} ${!allowed(tag)?'disabled':''}>${e(viewLabel({tag,label}))}${tag===master?' · 母版':''}</label>`).join('')}</fieldset><button class="primary" data-preview>预览本次生成计划</button>`);
     const previewButton=node.querySelector('[data-preview]');
-    const updateSelection=()=>{previewButton.disabled=!node.querySelector('[data-view-tag]:checked')};
+    const modelSelect=node.querySelector('#material-plan-model');
+    const updateSelection=()=>{previewButton.disabled=modelSelect.value!=='codex-dialog'&&!node.querySelector('[data-view-tag]:checked');previewButton.textContent=modelSelect.value==='codex-dialog'?'继续使用 Codex':'预览本次生成计划'};
+    modelSelect.onchange=updateSelection;
     if(defaultTag&&(!(asset.available_view_tags||[]).includes(defaultTag)||(asset.kind==='character'&&!defaultTag.startsWith('body_')))){const note=document.createElement('p');note.className='muted';note.textContent='当前角色需先审阅已保存的身份母版，或由制作助手更新为全身母版；历史图片保留。';node.querySelector('[data-body]').prepend(note)}
     updateSelection();
     node.querySelectorAll('[data-view-tag]').forEach(control=>control.onchange=()=>{
@@ -99,12 +120,21 @@ const MaterialLibrary = (() => {
       const single=control.value===master||(asset.kind==='character'&&control.value==='body_front');
       node.querySelectorAll('[data-view-tag]').forEach(other=>{if(other!==control&&(single||other.value===master||(asset.kind==='character'&&other.value==='body_front')))other.checked=false});updateSelection();
     });
-    node.querySelector('[data-preview]').onclick=()=>safe(node,async()=>{
+    node.querySelector('[data-preview]').onclick=()=>{if(modelSelect.value==='codex-dialog'){node.close();codexPlan(catalog,asset);return}return safe(node,async()=>{
       const tags=[...node.querySelectorAll('[data-view-tag]:checked')].map(el=>el.value);
       const items=tags.map(tag=>{const reference=tag.startsWith('body_')?(adopted?.views.find(v=>v.tag==='body_front')||source):tag.startsWith('head_')?(adopted?.views.find(v=>v.tag==='head_front')||source):source;return {asset_id:asset.id,version:asset.latest_version,view_tag:tag,...(tag!==master&&reference?{reference_version:adopted.version,reference_view_id:reference.id}:{})}});
-      const model=document.querySelector('#material-model')?.value||catalog.default_model;
+      const model=modelSelect.value;
       const preview=await request(catalog,'generation/preview',{items,model});node.close();confirmPlan(catalog,items,model,preview,onDone);
-    });
+    })};
+  }
+  function codexPlan(catalog,asset){
+    const v=version(asset),labels=catalog.view_labels[asset.kind];
+    const choices=asset.kind==='character'?['body_front','body_side','body_back']:asset.kind==='scene'?['scene_main']:asset.kind==='scale'?['scale_main']:['main','front','side','back','detail'];
+    const node=dialog('通过 Codex 生成素材',`<p>在 Codex 对话中生成，再保存回当前素材库。工作台不会直接调用生图工具或计费。</p><label class="field" for="codex-view">需要的视图</label><select id="codex-view">${choices.filter(tag=>labels[tag]).map(tag=>`<option value="${e(tag)}">${e(viewLabel({tag,label:labels[tag]}))}</option>`).join('')}</select><label class="field" for="codex-request">发给 Codex 的内容</label><textarea id="codex-request" rows="7" readonly></textarea><div class="shot-actions"><button type="button" class="primary" data-copy>复制内容</button></div><p data-copy-status role="status" class="muted">复制后粘贴到 Codex 对话，由 Codex 完成生成和导入。</p>`);
+    const field=node.querySelector('#codex-request'),select=node.querySelector('#codex-view');
+    function update(){field.value=`请在工作台项目 ${catalog.project_id} 的素材资产库中，为「${v.name}」（素材 ${asset.id}，当前版本 v${asset.latest_version}）使用 Codex 的 OpenAI 生图工具生成一张${viewLabel({tag:select.value,label:labels[select.value]})}，遵循项目视觉风格及角色参考，保存为待审阅候选并记录真实来源。保留原有素材和历史版本。`}
+    select.onchange=update;update();
+    node.querySelector('[data-copy]').onclick=async()=>{try{await navigator.clipboard.writeText(field.value);node.querySelector('[data-copy-status]').textContent='已复制，请粘贴到 Codex 对话。'}catch{field.focus();field.select();node.querySelector('[data-copy-status]').textContent='无法自动复制，已选中文字，请手动复制。'}};
   }
   function confirmPlan(catalog,items,model,preview,onDone){
     const enabled=catalog.generation_enabled&&(catalog.allowed_models||[]).includes(model);
@@ -133,7 +163,7 @@ const MaterialLibrary = (() => {
     function draw(){
       const v=version(asset,Number(node.querySelector('select').value)),body=node.querySelector('[data-version-body]');
       const review=v.production_status||{},isAdopted=asset.adopted_version===v.version,needsReview=isAdopted&&!(review.reviewed_tags||[]).length;
-      body.innerHTML=`${designHTML(v.design_summary)}<p style="white-space:pre-wrap">${e(v.summary)}</p>${v.variant?`<p>外观：${e(v.variant)}</p>`:''}<div class="asset-view-grid">${viewsHTML(v)}</div>${v.views.length?'':'<p class="empty">此版本尚无图片。可先生成母版，之后补需要的视图。</p>'}<div class="shot-actions"><button class="primary" data-adopt>${needsReview?'按当前规范重新审阅 v'+v.version:isAdopted?'取消采用 v'+v.version:'人工采用 v'+v.version}</button>${isAdopted&&needsReview?`<button data-unadopt>取消历史采用 v${v.version}</button>`:''}<button data-plan ${asset.design_summary?.ready?'':'disabled'}>生成需要的视图</button></div><p class="muted">采用版本用于后续选择；镜头已引用的旧版本不会自动替换。</p>`;
+      body.innerHTML=`${designHTML(v.design_summary)}<p style="white-space:pre-wrap">${e(v.summary)}</p>${v.variant?`<p>外观：${e(v.variant)}</p>`:''}${v.related_versions?.length?`<p>关联角色：${e(relatedVersions(v,catalog))}</p>`:''}<div class="asset-view-grid">${viewsHTML(v)}</div>${missingViews(asset,v,catalog).length?`<p class="asset-pause">尚缺：${e(missingViews(asset,v,catalog).join('、'))}。视图齐全并审阅前，素材不能整体审计通过；可先逐张采用已有视图。</p>`:''}${v.views.length?'':'<p class="empty">此版本尚无图片。可先生成母版，之后补需要的视图。</p>'}<div class="shot-actions"><button class="primary" data-adopt>${needsReview?'按当前规范重新审阅 v'+v.version:isAdopted?'取消采用 v'+v.version:missingViews(asset,v,catalog).length?'先采用已有视图 v'+v.version:'人工采用 v'+v.version}</button>${isAdopted&&needsReview?`<button data-unadopt>取消历史采用 v${v.version}</button>`:''}<button data-plan ${asset.design_summary?.ready?'':'disabled'}>生成需要的视图</button></div><p class="muted">采用版本用于后续选择；镜头已引用的旧版本不会自动替换。</p>`;
       bindImages(body,v,v.name);
       if(!v.design_summary?.ready&&(!isAdopted||needsReview))body.querySelector('[data-adopt]').disabled=true;
       if(v.views.length&&v.design_summary?.ready&&(!isAdopted||needsReview)){
@@ -152,23 +182,21 @@ const MaterialLibrary = (() => {
   }
   async function mount(container,options){
     if(active)active.closed=true;
-    const context={selectedViews:new Map(),closed:false,filter:'all',query:'',layout:(()=>{try{return localStorage.getItem('frame-material-layout')==='list'?'list':'grid'}catch{return 'grid'}})(),catalog:null};active=context;
-    container.innerHTML=`<div class="asset-library"><div class="title-row"><div class="page-heading"><span class="muted">素材</span><span data-asset-count class="muted"></span></div><div class="asset-heading-actions"><button data-organize>从故事整理素材</button><button class="primary" data-create>＋ 新增素材</button></div></div><div class="asset-toolbar"><div class="asset-filters" role="group" aria-label="素材类型筛选"><button data-filter="all" aria-pressed="true">全部</button><button data-filter="character" aria-pressed="false">角色</button><button data-filter="object" aria-pressed="false">物品</button><button data-filter="voice" aria-pressed="false">声音</button></div><input class="asset-search" type="search" aria-label="搜索素材" placeholder="搜索名称或设定"><div class="asset-layout-switch" role="group" aria-label="素材显示方式"><button data-layout="grid">网格</button><button data-layout="list">列表</button></div><div class="asset-model"><label for="material-model" class="muted">本次图片模型</label><select id="material-model"></select></div></div><div data-asset-notice role="status"></div><div data-asset-list class="asset-grid"><p>正在读取本项目素材…</p></div><section class="panel" data-asset-tasks style="margin-top:24px"></section></div>`;
-    container.querySelector('.asset-toolbar').insertAdjacentHTML('beforebegin','<div class="asset-heading-actions" style="margin-bottom:16px"><button type="button" data-project-style aria-haspopup="dialog">项目视觉风格</button></div>');
+    const context={selectedViews:new Map(),closed:false,filter:'all',query:'',layout:'grid',catalog:null};active=context;
+    container.innerHTML=`<div class="asset-library"><div class="asset-toolbar"><div class="asset-filters" role="group" aria-label="素材类型筛选"><button data-filter="all" aria-pressed="true">全部</button><button data-filter="character" aria-pressed="false">角色</button><button data-filter="object" aria-pressed="false">物品</button><button data-filter="scene" aria-pressed="false">场景</button><button data-filter="scale" aria-pressed="false">比例</button><button data-filter="voice" aria-pressed="false">声音</button></div><div class="asset-heading-actions"><button type="button" data-project-style aria-haspopup="dialog">项目视觉风格</button><button class="primary" data-create>＋ 新增素材</button></div></div><div data-asset-notice role="status"></div><div data-asset-list class="asset-grid"><p>正在读取本项目素材…</p></div><section class="panel" data-asset-tasks style="margin-top:24px"></section></div>`;
     const alive=()=>!context.closed&&container.isConnected&&location.hash==='#characters'&&context.catalog?.project_id===options.projectId;
     const done=async()=>{if(!alive())return;await load();if(options.onMutation)await options.onMutation()};
     function draw(){
       const catalog=context.catalog,notice=container.querySelector('[data-asset-notice]');
-      notice.innerHTML=catalog.generation_paused?'':catalog.generation_enabled?'<p class="muted">先预览本次素材、视图和总费用，再确认生成。结果完成后仍需人工采用。</p>':`<p class="asset-pause">${catalog.generation_paused?'本项目的新生成已暂停。':'本项目尚无可执行的图片预算授权。'}可整理设定、预览费用和审阅已有素材；不会自动生成。</p>`;
+      notice.textContent='';
       const list=catalog.assets.filter(a=>(context.filter==='all'||a.kind===context.filter)&&(!context.query||[version(a).name,version(a).summary].join(' ').toLocaleLowerCase().includes(context.query)));
       const voices=(catalog.voice_assets||[]).filter(v=>(context.filter==='all'||context.filter==='voice')&&(!context.query||v.name.toLocaleLowerCase().includes(context.query)));
-      container.querySelector('[data-asset-count]').textContent=(list.length+voices.length)+' / '+(catalog.assets.length+(catalog.voice_assets||[]).length);
       container.querySelector('[data-asset-list]').classList.toggle('asset-list',context.layout==='list');
       container.querySelectorAll('[data-layout]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.layout===context.layout)));
       container.querySelector('[data-asset-list]').innerHTML=list.length?list.map(a=>{
-        const latest=displayVersion(a),cover=latest.views.find(v=>v.id===context.selectedViews.get(a.id))||defaultView(latest.views);
-        return `<article class="material-card" data-material="${e(a.id)}"><div class="material-cover ${cover?'has-image':'is-empty'}">${cover?`<button type="button" data-cover aria-label="放大${e(latest.name)}的${e(viewLabel(cover))}"><img src="${e(cover.url)}" alt="${e(latest.name+' '+cover.label)}" loading="lazy"></button><span class="material-view-label" data-view-label aria-live="polite">${e(viewLabel(cover))} · ${latest.views.indexOf(cover)+1} / ${latest.views.length}</span>${latest.views.length>1?`<button type="button" class="material-next-view" data-next-view aria-label="切换${e(latest.name)}的下一张视图">›</button>`:''}`:`<div class="material-empty"><p>尚无图片<br>${a.design_summary?.ready?'先生成一张'+e(catalog.view_labels[a.kind][a.master_plan?.identity_tag]||'外观')+'母版。':'待制作助手交接视觉设计，无需准备机器提示词。'}</p></div>`}</div><div class="material-content"><div class="panel-head"><h2>${e(latest.name)}</h2><span class="badge">${typeName(a.kind)}</span></div><div class="material-version">当前 v${a.latest_version} · ${a.adopted_version?'已采用 v'+a.adopted_version:'尚未采用'} · ${latest.views.length} 张独立视图</div>${coverageHTML(a,latest,catalog)}<p class="material-summary">${e(latest.summary||'还没有简要设定。')}</p><p class="material-production">${e(productionLabel(a))}</p><div class="material-actions"><button class="primary" data-generate ${a.design_summary?.ready?'':'disabled'}>${adoptedSource(a)?.views.length?'生成需要的视图':'生成外观母版'}</button><button data-detail aria-haspopup="dialog">查看详情</button></div></div></article>`;
-      }).join(''):'<section class="panel empty"><strong>这里还没有'+(context.filter==='all'?'素材':context.filter==='character'?'角色':'物品')+'</strong><p>从故事整理已有角色和物品，或新增一项简要设定，再生成母版。</p></section>';
+        const latest=displayVersion(a),cover=latest.views.find(v=>v.id===context.selectedViews.get(a.id))||defaultView(latest.views),reviewed=fullyReviewed(a,latest,catalog);
+        return `<article class="material-card" data-material="${e(a.id)}"><div class="material-cover ${cover?'has-image':'is-empty'} ${reviewed&&cover?'has-review-stamp':''}">${cover?`<button type="button" data-cover aria-label="放大${e(latest.name)}的${e(viewLabel(cover))}"><img src="${e(cover.url)}" alt="${e(latest.name+' '+cover.label)}" loading="lazy"></button>${reviewed?`<span class="material-review-stamp" aria-label="${e(productionLabel(a))}" title="${e(productionLabel(a))}">通过</span>`:''}<span class="material-view-label" data-view-label aria-live="polite">${e(viewLabel(cover))} · ${latest.views.indexOf(cover)+1} / ${latest.views.length}</span>${latest.views.length>1?`<button type="button" class="material-prev-view" data-prev-view aria-label="切换${e(latest.name)}的上一张视图" ${latest.views.indexOf(cover)===0?'disabled':''}>‹</button><button type="button" class="material-next-view" data-next-view aria-label="切换${e(latest.name)}的下一张视图" ${latest.views.indexOf(cover)===latest.views.length-1?'disabled':''}>›</button>`:''}`:`<div class="material-empty"><p>尚无图片<br>${a.design_summary?.ready?'先生成一张'+e(catalog.view_labels[a.kind][a.master_plan?.identity_tag]||'外观')+'母版。':'待制作助手交接视觉设计，无需准备机器提示词。'}</p></div>`}</div><div class="material-content"><div class="panel-head"><h2>${e(latest.name)}</h2><span class="badge">${typeName(a.kind)}</span></div>${reviewed?'':`<p class="material-production">${e(productionLabel(a))}</p>`}<div class="material-actions"><button class="primary" data-audit aria-haspopup="dialog">${reviewed?'审计通过':missingViews(a,latest,catalog).length?'补全并审阅':'审计并通过'}</button><button data-detail aria-haspopup="dialog">查看详情</button></div></div></article>`;
+      }).join(''):'<section class="panel empty"><strong>这里还没有'+(context.filter==='all'?'素材':context.filter==='character'?'角色':context.filter==='scene'?'场景':context.filter==='scale'?'比例参考':'物品')+'</strong><p>从故事整理已有角色和物品，或新增一项简要设定，再生成母版。</p></section>';
       const voiceGrid=container.querySelector('[data-asset-list]');
       if(context.filter==='voice'||(!list.length&&voices.length))voiceGrid.innerHTML=voices.length?'':'<section class="panel empty"><strong>还没有声音素材</strong><p>可以从已验收的视频提取声音候选，再试听采用。</p></section>';
       if(voices.length)voiceGrid.insertAdjacentHTML('beforeend',voices.map(a=>{const v=a.versions.find(x=>x.version===a.latest_version);return `<article class="material-card voice-card"><div class="material-content"><div class="panel-head"><h2>${e(a.name)}</h2><span class="badge">声音</span></div><p class="material-version">当前 v${a.latest_version} · ${a.adopted_version?'已采用 v'+a.adopted_version:'待试听'}</p><p class="muted">来源：已验收视频 ${Number(v.start).toFixed(2)}–${Number(v.end).toFixed(2)} 秒。按时间截取，角色归属、串音和背景声需试听确认。</p><audio controls preload="none" src="${e(v.url)}" aria-label="试听${e(a.name)}" style="width:100%"></audio><div class="material-actions"><button class="primary" type="button" data-voice-adopt="${e(a.id)}" data-version="${v.version}" ${a.adopted_version===v.version?'disabled':''}>${a.adopted_version===v.version?'已采用':'试听后采用'}</button></div></div></article>`}).join(''));
@@ -178,18 +206,22 @@ const MaterialLibrary = (() => {
         if(cover){
           let shown=cover;
           const imageButton=card.querySelector('[data-cover]'),image=imageButton.querySelector('img');
-          imageButton.onclick=()=>openImage(shown,latest.name);
-          const next=card.querySelector('[data-next-view]');
-          if(next)next.onclick=()=>{
-            shown=latest.views[(latest.views.indexOf(shown)+1)%latest.views.length];context.selectedViews.set(a.id,shown.id);
+          imageButton.onclick=()=>openImage(shown,latest.name,latest.views);
+          const prev=card.querySelector('[data-prev-view]'),next=card.querySelector('[data-next-view]');
+          const move=delta=>{
+            const index=latest.views.indexOf(shown)+delta;if(index<0||index>=latest.views.length)return;
+            shown=latest.views[index];context.selectedViews.set(a.id,shown.id);
+            prev.disabled=index===0;next.disabled=index===latest.views.length-1;
             image.src=shown.url;image.alt=latest.name+' '+viewLabel(shown);
             imageButton.setAttribute('aria-label','放大'+latest.name+'的'+viewLabel(shown));
             card.querySelector('[data-view-label]').textContent=viewLabel(shown)+' · '+(latest.views.indexOf(shown)+1)+' / '+latest.views.length;
           };
+          if(prev)prev.onclick=()=>move(-1);
+          if(next)next.onclick=()=>move(1);
         }
-        card.querySelector('[data-generate]').onclick=()=>choosePlan(catalog,a,done);
+        card.querySelector('[data-audit]').onclick=()=>history(catalog,a,done);
         card.querySelector('[data-detail]').onclick=()=>{
-          const node=dialog(latest.name+' · 素材详情',`<p class="material-version">当前 v${a.latest_version} · ${a.adopted_version?'已采用 v'+a.adopted_version:'尚未采用'} · ${latest.views.length} 张独立视图</p><p style="white-space:pre-wrap">${e(latest.summary||'还没有简要设定。')}</p>${designHTML(a.design_summary)}<div class="material-actions"><button data-history>视图与历史</button><button data-edit>编辑设定</button><button data-upload>导入已有图片</button></div>`);
+          const node=dialog(latest.name+' · 素材详情',`<p class="material-version">当前 v${a.latest_version} · ${a.adopted_version?'已采用 v'+a.adopted_version:'尚未采用'} · ${latest.views.length} 张独立视图</p><p class="muted">审阅状态：${e(fullyReviewed(a,latest,catalog)?productionLabel(a):missingViews(a,latest,catalog).length?'视图未齐全，不能整体审计通过；尚缺：'+missingViews(a,latest,catalog).join('、'):productionLabel(a))}</p>${latest.views.map(view=>`<p class="muted">${e(viewLabel(view))} · 来源：${e(view.source_info?.label||'未记录')}</p>`).join('')}<p style="white-space:pre-wrap">${e(latest.summary||'还没有简要设定。')}</p>${designHTML(a.design_summary)}<div class="material-actions"><button data-history>视图与历史</button><button data-edit>编辑设定</button><button data-upload>导入已有图片</button></div>`);
           node.classList.add('asset-detail-dialog');
           node.querySelector('[data-history]').onclick=()=>{node.close();history(catalog,a,done)};
           node.querySelector('[data-edit]').onclick=()=>{node.close();editor(catalog,a,done)};
@@ -224,17 +256,10 @@ const MaterialLibrary = (() => {
         await request(context.catalog,'style',payload);node.close();await done();
       });
     }
-    async function load(){const data=await getCatalog();if(context.closed||!container.isConnected||data.project_id!==options.projectId)return;context.catalog=data;const select=container.querySelector('#material-model');if(!select.options.length){select.innerHTML=Object.entries(data.models||{}).map(([id,label])=>`<option value="${e(id)}">${e(label)}</option>`).join('');select.value=data.default_model}draw()}
+    async function load(){const data=await getCatalog();if(context.closed||!container.isConnected||data.project_id!==options.projectId)return;context.catalog=data;draw()}
     container.querySelector('[data-project-style]').onclick=()=>{if(context.catalog)renderProjectStyle(context.catalog)};
     container.querySelectorAll('[data-filter]').forEach(button=>button.onclick=()=>{context.filter=button.dataset.filter;container.querySelectorAll('[data-filter]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));if(context.catalog)draw()});
-    container.querySelector('.asset-search').oninput=event=>{context.query=event.target.value.trim().toLocaleLowerCase();if(context.catalog)draw()};
-    container.querySelectorAll('[data-layout]').forEach(button=>button.onclick=()=>{context.layout=button.dataset.layout;try{localStorage.setItem('frame-material-layout',context.layout)}catch{}if(context.catalog)draw()});
     container.querySelector('[data-create]').onclick=()=>{if(context.catalog)editor(context.catalog,null,done)};
-    container.querySelector('[data-organize]').onclick=()=>run(async()=>{
-      const response=await fetch('/api/assets/propose'),proposal=await response.json();if(!response.ok)throw Error(proposal.error||'素材清单读取失败');
-      const node=dialog('从故事整理素材',`<p>${e(proposal.note)}</p>${proposal.items.length?`<fieldset><legend>可加入的物品</legend>${proposal.items.map((item,i)=>`<label class="asset-choice"><input type="checkbox" data-proposed="${i}" checked>${e(item.name)}</label><p class="muted">${e(item.summary)}</p>`).join('')}</fieldset><button class="primary" data-create-proposed>加入素材清单</button>`:'<p>已有角色已保留。暂未发现新的物品候选；你也可以直接新增素材。</p>'}`);
-      const button=node.querySelector('[data-create-proposed]');if(button)button.onclick=()=>safe(node,async()=>{await request(context.catalog,'organize',{names:[...node.querySelectorAll('[data-proposed]:checked')].map(b=>proposal.items[Number(b.dataset.proposed)].name)});node.close();await done()});
-    });
     try{await load()}catch(error){if(container.isConnected)container.querySelector('[data-asset-notice]').textContent=error.message}
     let attempts=0;
     async function tick(){

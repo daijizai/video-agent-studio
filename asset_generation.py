@@ -24,7 +24,7 @@ import secret_store
 MODELS = {'doubao-seedream-5-0-flash-260915': 'Seedream 5.0 Flash',
           'qwen-image-3.0-pro': 'Qwen Image3.0 Pro', 'qwen-image-3.0': 'Qwen Image3.0'}
 LIVE = ('submitting', 'uploading', 'queued', 'running', 'unknown', 'archive_pending')
-MASTER = {'character': 'portrait', 'object': 'main'}
+MASTER = {'character': 'portrait', 'object': 'main', 'scene':'scene_main','scale':'scale_main'}
 
 
 def digest(value):
@@ -230,7 +230,7 @@ class AssetGeneration:
 
     def preview(self, project_id, items, model):
         state = self._state(project_id); plan = self._plan(state, items, model)
-        note='系统设计草案待审阅；每项1张独立图片。先采用身份母版，再建立并采用全身正面，之后才补独立侧背视图。预估不含自动重试。'
+        note='系统设计草案待审阅；每项1张独立图片。角色先审阅身份与全身母版再补侧背，场景主图需审阅后才能作为参考。预估不含自动重试。'
         if model=='doubao-seedream-5-0-flash-260915' and any(len(str(j['request'].get('prompt','')))>300 for j in plan['jobs']):
             note+=' 本次提示较长；Seedream官方建议中文约300字以内，过长可能使部分细节被忽略。这是建议，不会自动删减或阻止预览。'
         return {'project_id': project_id, 'revision': state['revision'], 'fingerprint': plan['fingerprint'],

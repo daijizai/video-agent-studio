@@ -19,3 +19,5 @@
 - Ordinary UI shows stories, designs, media, versions, costs and feedback. Machine prompts and consistency records remain backstage; hiding them must not delete history or silently change requests.
 
 - For material-reference video shot prompts without prerequisite keyframes, read `skills/frame-video-prompts/SKILL.md`. Keep material and shot approval bound; do not silently reuse storyboard images as first frames.
+- For reusable scene designs and environment reference images, read `skills/frame-scene-assets/SKILL.md`. A scene reference is not automatically a first frame or an approved image.
+- For reusable relative-size reference images, read `skills/frame-scale-reference/SKILL.md`. Keep referenced character versions explicit and do not treat the image as an implicit first frame.

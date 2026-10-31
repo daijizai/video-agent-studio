@@ -159,10 +159,28 @@ class HandoffTests(AssetFixture):
         self.action('adopt',asset_id=role['id'],version=role['latest_version'])
         self.assertEqual(workflow_state.material_preparation(self.state())['ready'],0)
         role=self.upload(role,'body_front');self.action('adopt',asset_id=role['id'],version=role['latest_version'])
+        self.assertFalse(workflow_state.material_preparation(self.state())['complete'])
+        role=self.upload(role,'body_side');self.action('adopt',asset_id=role['id'],version=role['latest_version'])
+        self.assertFalse(workflow_state.material_preparation(self.state())['complete'])
+        role=self.upload(role,'body_back');self.action('adopt',asset_id=role['id'],version=role['latest_version'])
         self.assertEqual(workflow_state.material_preparation(self.state()),{'ready':1,'total':1,'complete':True})
         role=self.service.catalog(1)['assets'][0]
         self.action('edit',asset_id=role['id'],name='新的角色设定',summary='新外观',role='主角',variant='')
         self.assertFalse(workflow_state.material_preparation(self.state())['complete'])
+
+    def test_object_and_scene_audit_completeness(self):
+        obj=self.upload(self.create('object','物品'),'main')
+        self.action('adopt',asset_id=obj['id'],version=obj['latest_version'])
+        status=next(a for a in self.service.catalog(1)['assets'] if a['id']==obj['id'])['production_status']
+        self.assertFalse(status['audit_complete'])
+        for tag in ('front','side','back','detail'):obj=self.upload(obj,tag)
+        self.action('adopt',asset_id=obj['id'],version=obj['latest_version'])
+        status=next(a for a in self.service.catalog(1)['assets'] if a['id']==obj['id'])['production_status']
+        self.assertTrue(status['audit_complete'])
+        scene=self.upload(self.create('scene','场景'),'scene_main')
+        self.action('adopt',asset_id=scene['id'],version=scene['latest_version'])
+        status=next(a for a in self.service.catalog(1)['assets'] if a['id']==scene['id'])['production_status']
+        self.assertTrue(status['audit_complete'])
 
 class RecipePipelineTests(AssetFixture):
     def setUp(self):

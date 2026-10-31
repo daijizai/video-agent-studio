@@ -11,7 +11,7 @@ from pathlib import Path
 BLUEPRINT_VERSION='1.0'
 RECIPE_VERSION='1.0'
 MAPPING_VERSION='1.0'
-SKILLS={'character':'frame-character-assets','object':'frame-object-assets'}
+SKILLS={'character':'frame-character-assets','object':'frame-object-assets','scene':'frame-scene-assets','scale':'frame-scale-reference'}
 ORIGINS=('story_fact','system_choice','unknown')
 FIELD_LABELS={'identity':'身份','age':'年龄','appearance':'外观身份','face_outline':'脸部轮廓','face_features':'辨识特征',
  'hair':'发型与发色','body':'体型比例','outerwear':'外层服装','innerwear':'内搭','lowerwear':'下装','footwear':'鞋',
@@ -19,12 +19,16 @@ FIELD_LABELS={'identity':'身份','age':'年龄','appearance':'外观身份','fa
  'service_age':'服役年限','chassis':'机体结构','head_shell':'头部外壳','sensors':'传感器与辨识特征','joints':'关节',
  'manipulators':'手部与机足','surface_materials':'表面材料','markings':'固定识别特征',
  'body_plan':'体态与结构','covering':'毛皮/外壳','distinctive_features':'辨识结构','appendages':'肢体/操作部件',
- 'shape':'形状','material':'材质','structure':'结构','color':'颜色','wear':'磨损标记'}
+ 'shape':'形状','material':'材质','structure':'结构','color':'颜色','wear':'磨损标记',
+ 'scene_layout':'空间布局','scene_materials':'材质与色彩','scene_light':'光线','scene_fixed':'固定元素','scene_mutable':'可变化元素',
+ 'scale_subjects':'关联主体','scale_relative':'相对体量','scale_context':'场景与透视'}
 CHARACTER_FIELDS=('identity','age','appearance','face_outline','face_features','hair','body','outerwear','innerwear',
  'lowerwear','footwear','clothing_materials','body_proportions','accessories','project_style')
 ROBOT_FIELDS=('identity','service_age','chassis','head_shell','sensors','joints','body_proportions','manipulators',
  'surface_materials','markings','project_style')
 OBJECT_FIELDS=('identity','shape','material','structure','color','wear','project_style')
+SCENE_FIELDS=('identity','scene_layout','scene_materials','scene_light','scene_fixed','scene_mutable','project_style')
+SCALE_FIELDS=('identity','scale_subjects','scale_relative','scale_context','project_style')
 OTHER_FIELDS=('identity','body_plan','covering','distinctive_features','appendages','body_proportions','project_style')
 # Technical stage/shape contracts, not creative prompts.
 VIEW_SPECS={
@@ -38,7 +42,9 @@ VIEW_SPECS={
  'three_quarter':('character.body.three-quarter','full_body','three_quarter',('identity','body')),
  'main':('object.master','object','primary',()),'front':('object.front','object','front',('object',)),
  'side':('object.side','object','right_90',('object',)),'back':('object.back','object','back_180',('object',)),
- 'detail':('object.detail','detail','detail',('object',))}
+ 'detail':('object.detail','detail','detail',('object',)),
+ 'scene_main':('scene.master','scene','primary',()),
+ 'scale_main':('scale.master','reference','primary',())}
 STATIC='只输出一张独立静态原图、一个主体、一个指定视图；禁止拼版、三联图、接触印样、多姿态或动作先后。'
 
 
@@ -51,8 +57,10 @@ def entry(value,origin='system_choice',evidence=''):
 
 
 def design_input_hash(state,asset,version):
-    return digest({'project_id':state.get('project_id'),'asset_id':asset['id'],'kind':asset['kind'],
-        'name':version.get('name'),'summary':version.get('summary'),'role':version.get('role'),'variant':version.get('variant')})
+    content={'project_id':state.get('project_id'),'asset_id':asset['id'],'kind':asset['kind'],
+        'name':version.get('name'),'summary':version.get('summary'),'role':version.get('role'),'variant':version.get('variant')}
+    if asset['kind']=='scale':content['related_versions']=version.get('related_versions',[])
+    return digest(content)
 
 
 def _string(value,name,limit=400,required=True):
@@ -62,6 +70,8 @@ def _string(value,name,limit=400,required=True):
 
 def _schema(kind,subtype):
     if kind=='object':return OBJECT_FIELDS
+    if kind=='scene' and subtype=='scene':return SCENE_FIELDS
+    if kind=='scale' and subtype=='scale':return SCALE_FIELDS
     if subtype=='human':return CHARACTER_FIELDS
     if subtype=='robot':return ROBOT_FIELDS
     if subtype in ('animal','other'):return OTHER_FIELDS
@@ -70,8 +80,8 @@ def _schema(kind,subtype):
 
 def normalize_profile(profile,kind):
     if not isinstance(profile,dict) or type(profile.get('schema_version',1)) is not int or profile.get('schema_version',1)!=1:raise ValueError('设计交接格式无效')
-    subtype=profile.get('subtype','object' if kind=='object' else 'unspecified')
-    if subtype not in ('human','robot','animal','other','object','unspecified') or (kind=='object' and subtype!='object'):raise ValueError('素材子类型无效')
+    subtype=profile.get('subtype','object' if kind=='object' else 'scene' if kind=='scene' else 'scale' if kind=='scale' else 'unspecified')
+    if subtype not in ('human','robot','animal','other','object','scene','scale','unspecified') or (kind in ('object','scene','scale') and subtype!=kind) or (kind=='character' and subtype in ('object','scene','scale')):raise ValueError('素材子类型无效')
     result={'schema_version':1,'design_version':_string(str(profile.get('design_version','1')),'设计版本',80),
             'subtype':subtype,'fields':{},'source':{},'view_recipes':{},'standard_setup':{},'master_plan':{},'input_basis_hash':profile.get('input_basis_hash','')}
     if result['input_basis_hash'] and (not isinstance(result['input_basis_hash'],str) or not re.fullmatch(r'[a-f0-9]{64}',result['input_basis_hash'])):raise ValueError('设计输入绑定指纹无效')
@@ -96,6 +106,8 @@ def normalize_profile(profile,kind):
     if plan:
         identity=plan.get('identity_tag');structure=plan.get('structure_tag')
         if kind=='object' and (identity!='main' or structure!='main'):raise ValueError('物品必须以主图为母版')
+        if kind=='scene' and (identity!='scene_main' or structure!='scene_main'):raise ValueError('场景必须以场景主图为母版')
+        if kind=='scale' and (identity!='scale_main' or structure!='scale_main'):raise ValueError('比例参考必须以参考图为母版')
         if kind=='character' and (identity not in ('portrait','body_front') or structure!='body_front'):raise ValueError('角色母版计划需明确身份与全身/结构正面')
         result['master_plan']={'identity_tag':identity,'structure_tag':structure,
             'has_head':plan.get('has_head'),'has_feet':plan.get('has_feet')}
@@ -186,7 +198,8 @@ def concrete_mapping(payload):
 
 
 def recipe(kind,tag,model,profile=None):
-    if tag not in VIEW_SPECS or (tag in ('main','front','side','back','detail'))!=(kind=='object'):raise ValueError('视图不属于该素材类型')
+    valid={'object':('main','front','side','back','detail'),'scene':('scene_main',),'scale':('scale_main',),'character':('portrait','head_front','head_side','head_back','body_front','body_side','body_back','three_quarter')}
+    if tag not in VIEW_SPECS or tag not in valid.get(kind,()):raise ValueError('视图不属于该素材类型')
     if not isinstance(profile,dict):raise ValueError('制作助手尚未交接该视图配方')
     profile=normalize_profile(profile,kind);value=profile['view_recipes'].get(tag)
     if not value:raise ValueError('制作助手尚未交接该视图描述，请先准备对应配方')
@@ -196,18 +209,20 @@ def recipe(kind,tag,model,profile=None):
     if tag==plan['identity_tag']:requirements=()
     elif tag==plan['structure_tag']:requirements=('identity',)
     elif kind=='character' and part=='head':requirements=('identity',)
-    if value['part']!=part or value['direction']!=direction or value['single_image'] is not True or value['single_subject'] is not True:raise ValueError('视图配方不满足单图/主体/朝向合同')
+    if value['part']!=part or value['direction']!=direction or value['single_image'] is not True or value['single_subject'] is not (False if kind=='scale' else True):raise ValueError('视图配方不满足单图/主体/朝向合同')
     if value['setup_id']!=profile['standard_setup'].get('id'):raise ValueError('视图未绑定同一照明与尺度设置')
     if kind=='character' and value['neutral_pose'] is not True:raise ValueError('标准角色视图必须使用中性姿态')
     if kind=='character' and part=='head' and not plan['has_head']:raise ValueError('该主体未声明头部，不能套用头部视图')
     if kind=='character' and ((not plan['has_head'] and value['head_visible'] is True) or (not plan['has_feet'] and value['feet_visible'] is True)):raise ValueError('视图声明了该主体不存在的部位')
     if part=='full_body' and (value['complete_subject'] is not True or (plan['has_head'] and value['head_visible'] is not True) or (plan['has_feet'] and value['feet_visible'] is not True)):raise ValueError('全身视图必须完整保留适用的身体部位')
     if part=='object' and value['complete_subject'] is not True:raise ValueError('物品标准图必须完整保留主体')
+    if part=='scene' and value['complete_subject'] is not True:raise ValueError('场景主图须呈现已交接的空间结构')
+    if part=='reference' and value['complete_subject'] is not True:raise ValueError('比例参考须呈现已交接的主体关系')
     if kind=='object' and value['contains_hands'] is not False:raise ValueError('物品标准图不得包含持有人或手掌')
     template={'id':value['id'],'version':value['version'],'contract_id':name,'policy_version':RECIPE_VERSION,'kind':kind,'view_tag':tag,
         'prompt':value['prompt'],'framing':{k:value[k] for k in ('part','direction','neutral_pose','head_visible','feet_visible','complete_subject')},
-        'static':STATIC,'requires':list(requirements),'standard_setup':copy.deepcopy(profile['standard_setup']),'master_plan':copy.deepcopy(plan),
-        'source':copy.deepcopy(profile['source']),'size':'1536*2048' if part=='full_body' else '1024*1024'}
+        'static':('只输出一张独立静态场景图、一个空间构图；禁止拼版、分屏或时间序列。' if kind=='scene' else '只输出一张包含所需主体的独立静态比例参考图；禁止拼版、分屏或时间序列。' if kind=='scale' else STATIC),'requires':list(requirements),'standard_setup':copy.deepcopy(profile['standard_setup']),'master_plan':copy.deepcopy(plan),
+        'source':copy.deepcopy(profile['source']),'size':'1536*2048' if part in ('full_body','scene','reference') else '1024*1024'}
     template['template_hash']=digest(template);mapped=mapping(model)
     return {'template':template,'mapping':mapped,'mapping_hash':digest(mapped),'recipe_hash':digest({'template':template,'mapping':mapped})}
 
@@ -241,7 +256,7 @@ def review_record(state,asset,version):
 
 
 def not_reviewed(status='当前设计与规范待审阅'):
-    return {'reviewed_tags':[],'identity_reviewed':False,'body_reviewed':False,'base_ready':False,'multiview_reviewed':False,'reusable':False,'ref_eligible_tags':[],'status':status,'quality_guarantee':False}
+    return {'reviewed_tags':[],'identity_reviewed':False,'body_reviewed':False,'base_ready':False,'multiview_reviewed':False,'audit_complete':False,'reusable':False,'ref_eligible_tags':[],'status':status,'quality_guarantee':False}
 
 
 def review_status(state,asset,version):
@@ -255,13 +270,16 @@ def review_status(state,asset,version):
     base=bool(identity in tags and structure in tags)
     body_complete=all(t in tags for t in ('body_front','body_side','body_back'))
     multi=bool(asset['kind']=='character' and body_complete)
+    profile=normalize_profile(version.get('design_profile',{}),asset['kind'])
+    required=('body_front','body_side','body_back') if asset['kind']=='character' else tuple(profile['view_recipes'])
+    audit_complete=bool(valid and base and required and all(tag in tags for tag in required))
     eligible=[]
     for tag in tags:
         req=recipe(asset['kind'],tag,version.get('views',[{}])[0].get('origin',{}).get('model','qwen-image-3.0-pro'),version['design_profile'])['template']['requires']
         if ('identity' in req and identity not in tags) or ('body' in req and structure not in tags) or ('object' in req and 'main' not in tags):continue
         eligible.append(tag)
     return {'reviewed_tags':tags,'identity_reviewed':identity in tags,'body_reviewed':structure in tags,'base_ready':base,
-        'multiview_reviewed':multi,'reusable':base and (multi or asset['kind']=='object'),'ref_eligible_tags':eligible,
+        'multiview_reviewed':multi,'audit_complete':audit_complete,'reusable':base and (multi or asset['kind'] in ('object','scene','scale')),'ref_eligible_tags':eligible,
         'status':'已人工审阅当前规范' if valid else '当前规范待复核','quality_guarantee':False}
 
 

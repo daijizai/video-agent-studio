@@ -23,6 +23,34 @@ class MaterialVideoTests(unittest.TestCase):
   self.assertEqual(snapshot['shot_language'][0]['name'],'环绕')
   self.shot['shot_language'][0]['instruction']='后来修改'
   self.assertEqual(snapshot['shot_language'][0]['instruction'],'摄像机沿弧线移动')
+ def test_three_four_with_quality_reference_uses_selected_output_dimensions(self):
+  self.state['settings']['ratio']='3:4'
+  baseline={'status':'sent','url':'https://example.volces.com/baseline.mp4','duration':5}
+  with patch.object(mv.video_quality,'select_reference',return_value=(baseline,[])):
+   prepared,snapshot=mv.prepare(self.state,self.shot,self.lib)
+  self.assertEqual(prepared['payload']['ratio'],'3:4')
+  self.assertEqual((prepared['estimate_basis']['width'],prepared['estimate_basis']['height']),(834,1112))
+  self.assertEqual(snapshot['quality_reference']['status'],'sent')
+ def test_approved_first_frame_is_exclusive_and_tamper_checked(self):
+  import base64,tempfile
+  from test_asset_library import png
+  import video_segments
+  with tempfile.TemporaryDirectory() as tmp:
+   self.lib.root=Path(tmp);self.server.ROOT=Path(tmp)
+   self.state['settings']['ratio']='3:4';self.state['video_segments']=[self.shot]
+   frame=video_segments.operate(self.server,self.state,'add-opening-candidate',{'segment_id':'s','base64':base64.b64encode(png(384,512)).decode()})['candidate']
+   with self.assertRaisesRegex(ValueError,'审阅'):video_segments.operate(self.server,self.state,'save-segment',{'segment_id':'s','draft':{'video_input_mode':'first_frame','opening_frame_id':frame['id']}})
+   video_segments.operate(self.server,self.state,'approve-opening',{'segment_id':'s','frame_id':frame['id']})
+   video_segments.operate(self.server,self.state,'save-segment',{'segment_id':'s','draft':{'video_input_mode':'first_frame','opening_frame_id':frame['id']}})
+   for provider,resolution in [('seedance25','720p'),('minimax','768P')]:
+    self.state['settings'].update(provider=provider,resolution=resolution)
+    prepared,snapshot=mv.prepare(self.state,self.shot,self.lib)
+    images=[x for x in prepared['payload']['content'] if x['type']=='image_url']
+    self.assertEqual(len(images),1);self.assertEqual(images[0]['role'],'first_frame')
+    self.assertEqual(prepared['payload']['ratio'],'adaptive');self.assertEqual(snapshot['materials'],[])
+    self.assertEqual(snapshot['opening_frame']['id'],frame['id']);self.assertNotIn('data:image',str(snapshot))
+   file=Path(tmp)/'assets'/'4'/Path(frame['url']).name;file.write_bytes(png(384,512,color=(1,2,3)))
+   with self.assertRaisesRegex(ValueError,'已变化'):mv.prepare(self.state,self.shot,self.lib)
  def test_accepted_first_video_voice_reference_is_sent_and_bound(self):
   import tempfile,hashlib,wave
   with tempfile.TemporaryDirectory() as tmp:

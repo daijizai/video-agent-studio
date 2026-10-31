@@ -20,15 +20,17 @@ with tempfile.TemporaryDirectory() as tmp:
             page.on('request',lambda r:submits.append(r.url) if '/submit' in r.url else None)
             page.goto(base+'/workspace.html?pin=2')
             page.get_by_text('3 个项目',exact=True).wait_for()
-            assert page.locator('.project').first.get_attribute('data-project-id')=='2'
+            assert page.locator('.project').first.get_attribute('data-project-id')=='3'
+            assert page.locator('.project.pinned[data-project-id="2"]').count()==1
             page.reload();page.locator('.project').first.wait_for()
-            assert page.locator('.project').first.get_attribute('data-project-id')=='2'
+            assert page.locator('.project').first.get_attribute('data-project-id')=='3'
+            assert page.locator('.project.pinned[data-project-id="2"]').count()==1
             page.get_by_role('button',name='打开 New thriller',exact=True).click()
             page.get_by_role('link',name='返回工作空间首页',exact=True).wait_for()
             assert server.current_project()==3
             page.get_by_role('link',name='返回工作空间首页',exact=True).click()
             page.get_by_role('heading',name='全部项目',exact=True).wait_for()
-            page.get_by_role('button',name='＋ 新建项目',exact=True).click()
+            page.get_by_role('button',name='新增项目',exact=True).click()
             page.get_by_label('项目名称',exact=True).fill('<img src=x onerror=alert(1)>')
             page.get_by_role('button',name='创建并打开',exact=True).click()
             page.get_by_role('link',name='返回工作空间首页',exact=True).wait_for()

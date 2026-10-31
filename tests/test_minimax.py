@@ -16,6 +16,12 @@ class MiniMaxContracts(unittest.TestCase):
   self.shot['reference_images']=['https://example.com/%s.png'%i for i in range(9)]
   r=self.provider.prepare(self.shot,self.cfg);self.assertEqual(r['estimated_cny'],3.8)
   self.assertTrue(all(x['role']=='reference_image' for x in r['payload']['content'][1:]));self.request.assert_not_called()
+ def test_three_four_with_two_character_references(self):
+  shot={**self.shot,'duration':14,'reference_images':['https://example.com/creature.png','https://example.com/cat.png']}
+  prepared=self.provider.prepare(shot,{**self.cfg,'ratio':'3:4'})
+  self.assertEqual(prepared['payload']['ratio'],'3:4')
+  self.assertEqual([v['role'] for v in prepared['payload']['content'][1:]],['reference_image','reference_image'])
+  self.request.assert_not_called()
  def test_variants_prices_and_no_silent_resolution_mapping(self):
   for model,price in [('MiniMax-H3-Highspeed',2.4),('MiniMax-H3-Lite',1.56),('MiniMax-H3-Max',3)]:
    self.assertEqual(self.provider.prepare(self.shot,{**self.cfg,'minimax_model':model})['estimated_cny'],price)

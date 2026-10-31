@@ -42,6 +42,19 @@ class StoryboardHTTPTests(unittest.TestCase):
             with urllib.request.urlopen(request) as response:return response.status,json.load(response)
         except urllib.error.HTTPError as error:return error.code,json.load(error)
 
+    def test_script_audit_binds_saved_content_and_expires_on_edit(self):
+        def audit(payload):
+            request=urllib.request.Request(f'http://127.0.0.1:{self.http.server_port}/api/approvals/script',data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
+            try:
+                with urllib.request.urlopen(request) as response:return response.status,json.load(response)
+            except urllib.error.HTTPError as error:return error.code,json.load(error)
+        s=server.read();payload={k:s.get(k,'') for k in ('title','episode','script')}
+        code,result=audit(payload);self.assertEqual(code,200);self.assertTrue(result['script_audit']['approved'])
+        code,result=self.post(payload);self.assertEqual(code,200);self.assertTrue(result['script_audit']['approved'])
+        code,result=self.post({'script':payload['script']+'修改'});self.assertEqual(code,200);self.assertNotIn('script_audit',result)
+        code,result=audit(payload);self.assertNotEqual(code,200)
+        self.assertEqual(len(server.read()['script_audit_history']),1)
+
     def test_optional_edit_persists_revokes_only_changed_shot_and_snapshots(self):
         s=server.read();shots=copy.deepcopy(s['shots'])
         shots[0]['creative_details']={'camera':{'movement':'locked'},'action_chain':{'start':'静止','end':'静止','steps':[]}}

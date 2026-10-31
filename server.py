@@ -280,6 +280,8 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path=='/api/comfy/diagnostics':
             try:return self.reply(repair_service().preflight())
             except Exception as error:return self.reply({'ready':False,'issues':[str(error)],'quality_verified':False})
+        if self.path=='/api/workspace/providers':
+            return self.reply([{k:v for k,v in entry.items() if k not in ('last_execution_status','execution_evidence')} for entry in providers.config_status()])
         if self.path=='/api/providers':return self.reply(providers.config_status(read()))
         if self.path=='/api/export':return self.reply(read())
         if self.path=='/api/revisions':
@@ -337,9 +339,14 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if self.headers.get('Origin') and self.headers['Origin'] != 'http://'+self.headers.get('Host',''):raise ValueError('拒绝跨站写入')
             n=int(self.headers.get('Content-Length','0'))
-            if n<0 or n>(28*1024*1024 if self.path=='/api/comfy/mask' else 17*1024*1024 if self.path in ('/api/assets/upload','/api/assets/style') else 2000000):raise ValueError('请求过大')
+            if n<0 or n>(28*1024*1024 if self.path=='/api/comfy/mask' else 17*1024*1024 if self.path in ('/api/assets/upload','/api/assets/style','/api/material-video/add-opening-candidate') else 2000000):raise ValueError('请求过大')
             p=json.loads(self.rfile.read(n) or b'{}')
             if not isinstance(p,dict):raise ValueError('请求须为对象')
+            if self.path=='/api/workspace/credentials':
+                with LOCK:
+                    name=providers.CATALOG.get(p.get('provider'),{}).get('key_env')
+                    secret_store.write_key(name,p.get('value'))
+                return self.reply({'saved':True,'credential_present':True,'connection':'unverified'})
             if self.path.startswith('/api/assets/'):
                 return self.handle_material(p)
             if self.path.startswith('/api/comfy/'):
@@ -392,7 +399,13 @@ class Handler(SimpleHTTPRequestHandler):
                 elif action=='/api/video-cost/report-screenshot':
                     import video_costing
                     video_costing.record_screenshot(s,p.get('amounts'));save(s);return self.reply(read())
+                elif action=='/api/approvals/script':
+                    if not str(s.get('script','')).strip():raise ValueError('请先保存剧本正文，再审计通过')
+                    if any(p.get(k)!=s.get(k,'') for k in ('title','episode','script')):raise ValueError('剧本内容已变化，请先保存当前内容，再审计通过')
+                    s['script_audit']={'approved':True,'content':{k:s.get(k,'') for k in ('title','episode','script')},'reviewed_at':datetime.now(timezone.utc).isoformat(),'source':'网页用户明确审计通过当前剧本'}
+                    s.setdefault('script_audit_history',[]).append(copy.deepcopy(s['script_audit']))
                 elif action=='/api/save':
+                    if any(k in p and p[k]!=s.get(k,'') for k in ('title','episode','script')):s.pop('script_audit',None)
                     previous_shots=copy.deepcopy(s['shots'])
                     for key in ['title','episode','script','continuity','characters','shots','budget','target_duration','production_demo','sequence_prompt','authorization_note','source_manifest','project_brief','quality_lessons','final_video','budget_authorizations']:
                         if key in p:s[key]=p[key]

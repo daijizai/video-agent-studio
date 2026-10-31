@@ -38,3 +38,15 @@ class WorkflowFacts(unittest.TestCase):
   s=self.state();self.approve(s);result=w.derive(s)
   self.assertEqual(result['code'],'VIDEO_READY')
   self.assertFalse(result['steps'][1]['complete'])
+
+ def test_audited_script_completes_story_without_legacy_shots(self):
+  s=self.state();s['shots']=[]
+  s['script_audit']={'approved':True,'content':{k:s.get(k,'') for k in ('title','episode','script')}}
+  s['script_audit_history']=[copy.deepcopy(s['script_audit'])]
+  r=w.derive(s);self.assertTrue(r['steps'][0]['complete']);self.assertEqual(r['steps'][0]['detail'],'审计通过');self.assertEqual(r['code'],'MATERIAL_PREPARATION')
+  from unittest.mock import patch
+  with patch.object(w,'material_preparation',return_value={'ready':2,'total':2,'complete':True}):
+   r=w.derive(s);self.assertEqual(r['code'],'VIDEO_PLANNING');self.assertTrue(r['steps'][3]['active']);self.assertFalse(r['steps'][3]['complete'])
+  s['script']='edited';s['shots']=self.state()['shots']
+  self.assertFalse(w.derive(s)['steps'][0]['complete'])
+  s.pop('script_audit');self.assertFalse(w.derive(s)['steps'][0]['complete'])

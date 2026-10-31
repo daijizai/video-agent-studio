@@ -24,6 +24,13 @@ class GenerationTests(AssetFixture):
         generation_scope.authorize_budgets(1,self.database,limit,9,'explicit mock fixture',self.state()['revision'])
         scope=generation_scope.read();scope['1']['paused']=paused;generation_scope.path().write_text(__import__('json').dumps(scope))
 
+    def test_scene_preview_is_environment_not_character_and_never_submits(self):
+        scene=self.create('scene','卧室')
+        items,preview=self.plan(scene,tag='scene_main')
+        self.assertFalse(preview['network_called'])
+        self.assertEqual(preview['items'][0]['asset_kind'],'scene')
+        self.provider.submit.assert_not_called()
+
     def plan(self,asset=None,tag='main',**extra):
         asset=asset or self.asset
         items=[{'asset_id':asset['id'],'version':asset['latest_version'],'view_tag':tag,**extra}]

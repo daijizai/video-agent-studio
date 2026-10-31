@@ -4,8 +4,26 @@ main > header .workspace-home-link{white-space:nowrap;flex-shrink:0}
 
 .asset-design{padding:14px 0;border-bottom:1px solid var(--line);margin-bottom:16px}.asset-design p{font-size:13px;line-height:1.8;margin:10px 0}.asset-design details{margin-top:12px}.material-production{font-size:12px;color:var(--accent);margin-top:10px}
 
-.material-cover .material-next-view{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:44px;height:44px;min-height:44px;padding:0;border:1px solid #65705d;border-radius:50%;background:#151a17e8;color:var(--accent);font-size:30px;line-height:1;z-index:1}
+.material-cover .material-prev-view,.material-cover .material-next-view{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:44px;height:44px;min-height:44px;padding:0;border:1px solid #65705d;border-radius:50%;background:#151a17e8;color:var(--accent);font-size:30px;line-height:1;z-index:1}
 .material-cover .material-next-view:hover{background:#35412d}.material-cover .material-next-view:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .material-view-label{position:absolute;left:8px;bottom:8px;max-width:calc(100% - 16px);padding:3px 8px;border-radius:4px;background:#101413e8;color:var(--text);font-size:12px;pointer-events:none;overflow-wrap:anywhere}
 .material-coverage{font-size:12px;line-height:1.7;padding:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:8px 0}.material-coverage p{margin:2px 0!important;white-space:normal}.material-coverage p>span{display:inline-block;margin-right:8px;color:var(--text)}
 .asset-list .material-view-label{font-size:11px;left:3px;bottom:3px;padding:2px 4px}.asset-list .material-cover .material-next-view{right:3px}.asset-list .material-coverage{grid-column:2;grid-row:3}
+.asset-filters{flex-wrap:wrap}
+
+.asset-image-browser{position:relative;padding:0 56px;background:#101214}.asset-image-browser>button{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:56px;padding:0;font-size:32px;line-height:1;z-index:1}.asset-image-prev{left:6px}.asset-image-next{right:6px}.asset-image-browser>button:disabled{opacity:.3;cursor:not-allowed}.asset-image-browser>button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(max-width:520px){.asset-image-browser{padding:0 46px}.asset-image-prev{left:0}.asset-image-next{right:0}}
+
+.material-cover .material-prev-view{left:8px;right:auto}.material-cover .material-prev-view:hover{background:#35412d}.material-cover .material-prev-view:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.material-cover .material-prev-view:disabled,.material-cover .material-next-view:disabled{opacity:.3;cursor:not-allowed;background:#151a17e8}.asset-list .material-cover .material-prev-view{left:3px}
+
+.asset-library .title-row{justify-content:flex-end}
+
+.asset-toolbar .asset-filters{flex-wrap:wrap}.asset-toolbar .asset-heading-actions{margin-left:auto;justify-content:flex-end}@media(max-width:700px){.asset-toolbar .asset-heading-actions{margin-left:0}}
+
+/* Reserve the side gutters for controls and the review seal. */
+.material-cover.has-review-stamp>button[data-cover]{box-sizing:border-box;padding:0 64px}
+.material-review-stamp{position:absolute;right:10px;top:10px;width:46px;height:46px;display:grid;place-items:center;border:2px solid #b5cf8b;outline:1px solid #b5cf8b;outline-offset:-6px;border-radius:50%;color:#d6e8b2;background:#172019;font-size:12px;font-weight:700;letter-spacing:1px;transform:rotate(12deg);pointer-events:none;z-index:2}
+@media(max-width:700px){.material-cover.has-review-stamp>button[data-cover]{padding:0 50px}.material-review-stamp{width:38px;height:38px;right:6px;top:6px;font-size:11px}}
+
+.material-cover .material-prev-view,.material-cover .material-next-view{border:0;background:transparent;border-radius:6px}
+.material-cover .material-prev-view:hover:not(:disabled),.material-cover .material-next-view:hover:not(:disabled){background:#27332bc9}
+.material-cover .material-prev-view:disabled,.material-cover .material-next-view:disabled{background:transparent}
