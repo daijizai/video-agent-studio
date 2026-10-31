@@ -1,6 +1,143 @@
 # Frame Studio / 视频制作 Agent 工作台
 
-以 Codex 为制作中枢的本地 AI 短剧工作台。HTML/JS 网页负责可视化制作；Python + SQLite 管理项目、角色版本、分镜、任务与预算；ComfyUI 执行本机工作流；**默认图片Qwen Image3.0 Pro、视频Wan3.0-Video-Prime，标准版保留可选**；FFmpeg 做成片拼接与字幕。
+以 Codex 为制作中枢的本地 AI 视频工作台：从剧本、角色与物品素材，到片段生成、候选审阅、顺序连播和成片导出。前端使用原生 HTML/CSS/JS，Python + SQLite 保存项目、版本、任务与预算；FFmpeg/FFprobe 用于媒体处理和检查。
+
+**新项目默认图片模型为 Seedream 5.0 Flash，视频供应商为 Seedance 2.5。** MiniMax H3 系列、Qwen Image3.0 和 Wan 系列保留可选。已有项目沿用自己的配置，升级代码不会自动切换供应商或重新生成历史素材。
+
+## 快速开始
+
+Python 3.9+；运行应用无需安装 pip 或 npm 依赖：
+
+```sh
+python3 server.py
+# 或指定端口：
+PORT=8766 python3 server.py
+```
+
+打开 [默认入口](http://127.0.0.1:8765) 或 [8766 入口](http://127.0.0.1:8766)。服务仅监听本机 loopback，适合单人使用，没有多用户认证，不应暴露公网。视频拼接、声音提取及倍速导出等功能需要另外安装 FFmpeg/FFprobe，二进制不随仓库分发。
+
+首次使用先创建项目、填写剧本，再准备素材或视频片段。仓库中的《雾港来信》是演示策划，不代表已经生成媒体或产生成本。启动应用、保存配置和播放媒体不会自动提交模型生成。
+
+## 页面与制作流程
+
+| 页面 | 主要用途 |
+| --- | --- |
+| 制作总览 | 查看项目状态、预算占用与下一步入口 |
+| 剧本 | 编辑故事、人物和项目内容 |
+| 素材资产库 | 管理角色、物品、项目视觉风格、设计版本与已采用素材 |
+| 视频制作 | 编辑片段、预览完整输入、生成与查询候选、审阅播放和导出 |
+| 工具与设置 | 配置供应商、模型、密钥和项目预算；进入开发者诊断 |
+
+**分镜工作台页面及 Tab 已删除。** 旧 `#shots` 地址转到视频制作；历史镜头、图片和审批记录仍保留。内部规则、机器提示、请求诊断、ComfyUI 配置与版本审计从“工具与设置 → 开发者诊断”进入。
+
+推荐制作顺序：
+
+1. **整理故事与素材设计。** Codex 按项目 Skill 准备剧本、角色、物品和风格；网页保存可读内容及版本。
+2. **准备素材母版。** 预览必要视图和费用，生成独立候选，人工审阅采用；补角度须绑定明确母版。已有图片也可上传补充。
+3. **编辑视频片段。** 填写完整 Prompt、时长、素材引用、声音参考、镜头语言与前置视频。素材参考直出视频路径不要求先生成分镜关键帧，也不会把素材图偷偷作为首帧。
+4. **预览并确认本次输入。** 核对实际模型、完整 Prompt、引用版本与费用预占，再确认生成。修改内容、模型或引用后须重新确认；预算授权与内容确认分别校验。
+5. **查询、审阅和交付。** 原任务返回后归档视频，保留候选及不可变输入快照；选择连播版本并人工验收。生成完成不等于质量通过。
+
+项目选择持久化，项目间的剧本、素材、任务、检查、配置与预算隔离。历史镜头仍沿用图片与内容绑定的审批合同；素材参考视频使用独立的完整输入确认，不以旧镜头审批替代。
+
+## 模型与接入范围
+
+| 能力 | 已接入模型 / 路径 | 说明 |
+| --- | --- | --- |
+| 图片生成与参考编辑 | Seedream 5.0 Flash；Qwen Image3.0 标准版 / Pro | 用于角色、物品和图片候选；实际可用权限取决于账号 |
+| 默认视频片段 | Seedance 2.5 | 素材参考、视频与声音参考；范围见 [方舟接入](docs/ARK_INTEGRATION.md) |
+| MiniMax 视频片段 | H3 / H3 Highspeed / H3 Lite / H3 Max | 文本及素材参考生成、费用预览、异步提交与查询、本地归档 |
+| 其他视频适配 | Wan3.0 / Wan3.0 Prime、Wan2.6 R2V Flash、Seedance 2.0 Mini | 保留原镜头 API 及对照路径；不表示片段编辑器已支持所有供应商 |
+| 局部图片修复 | Seedream 编辑；可选本机 ComfyUI 模板 | 候选须人工采用，不保证框选区域外像素完全不变 |
+
+当前素材参考片段生成接入 **Seedance 2.5 和 MiniMax**。其他视频适配的请求预检与任务入口仍在开发者诊断 / 旧镜头 CLI 中，能力不能互相套用。
+
+### MiniMax 使用
+
+1. 在“工具与设置”选择 **MiniMax**，选择模型、分辨率与画幅，保存配置。
+2. 从 [MiniMax 中国站控制台](https://platform.minimax.cn/console/home) 获取 API Key，在当前供应商的密码框中安全保存；本地名称为 `MINIMAX_API_KEY`。
+3. 在“视频制作”编辑片段，保存并预览完整输入、素材和费用。H3 支持 **768P / 2K、4–15 秒**；Highspeed / Lite 支持 **480P / 768P、4–15 秒**；Max 为 **480P / 768P、5–15 秒**。
+4. 在项目预算表单中明确授权所选 MiniMax 模型使用相应预算，再确认本次输入并生成；已有暂停状态仍然生效。
+
+H3 没有独立音频开关，本接入不发送 Seedance 的 `generate_audio` 参数。“使用声音参考”控制参考音频输入，不能承诺静音输出。参考图片最多9张；视频最多3段、合计15秒；音频最多3段、合计15秒；媒体合计最多12项。时长、分辨率和输入上限均按当前模型校验，不自动替换成别的规格。
+
+费用展示区分公示原价预估、任务预占、用户提供的金额记录与已核实实付。MiniMax 按输出视频、输入视频和超出免费张数的图片计算预占，不能把预估当账单。详见 [MiniMax 接入与验证范围](docs/MINIMAX_VIDEO.md)。
+
+**MiniMax 当前完成代码、Mock 和浏览器流程验证，尚未验证真实账户认证及模型出片效果。** 仓库代码和测试不包含真实账户密钥，不通过付费生成探测连接。
+
+## 密钥、预算与任务记录
+
+密钥由网页后端写入仓库外 `../.video-agent-studio-private/credentials.json`，目录权限0700、文件0600。网页不回显密钥，也不将其写入 SQLite、项目导出或 localStorage。可用 `STUDIO_SECRET_FILE=/absolute/private/folder/credentials.json` 指定其他仓库外路径。应用不从仓库内 `.env` 读取或保存密钥。
+
+不同供应商使用自己的密钥：MiniMax 为 `MINIMAX_API_KEY`，方舟为 `ARK_API_KEY`，Wan3 为 `WAN3_API_KEY`；旧 Wan2.6 路径使用 `DASHSCOPE_API_KEY` 及业务空间配置。设置页区分“缺少密钥”“配置存在”和历史任务证据，存在密钥不等于当前认证成功。
+
+- 没有全局付费解锁。图片与视频预算按项目、数据库和模型范围分别授权，不互相挪用；包含历史费用及未结算、在途预占。
+- 暂停状态由项目记录决定。修改预算、密钥或模型不会解除暂停，也不会自动扩大已有模型授权。
+- 提交前持久化请求意图与预占，获得供应商任务 ID 后按原编号查询。未知提交保留任务和预占，禁止自动重试；本地 UUID 不是供应商幂等保证。
+- 自动查询有次数上限与错误退避，不会重新生成。历史输入、素材版本、审批与候选视频可追踪；保存草稿不改写旧任务快照。
+- 未核实的实际费用保持未知。用户提供的账单或截图金额保留来源及匹配限制，不自动宣称结算完成。
+
+运行数据位于 `data/studio.db`，媒体在本机素材目录。只发布源码、通用示例和文档；数据库、凭据、私人素材、成片及本地预览截图不发布。
+
+## 视频播放与成片
+
+视频制作页提供片段候选、实际输入记录、顺序连播、播放倍速及已生成成片的倍速下载。真实媒体缺失时显示空态，不使用假视频；后端媒体支持 Range/HEAD。本机导出不会提交新的模型生成任务。
+
+也可使用 FFmpeg 拼接脚本：
+
+```sh
+python3 assemble.py assets/shot-01.mp4 assets/shot-02.mp4 -o episode-01.mp4
+python3 assemble.py assets/shot-01.mp4 assets/shot-02.mp4 --subtitles assets/captions.srt -o episode-01-sub.mp4
+```
+
+先准备同编码、同规格、同音轨结构的已审阅片段。脚本不覆盖已有输出；复杂剪辑和混音仍需专门处理，当前没有网页时间线编辑器。
+
+## 给 Codex 使用的 CLI
+
+CLI 通过同一本机 HTTP 后端操作项目，输出 JSON，失败时返回非零退出码：
+
+```sh
+python3 cli.py projects list
+python3 cli.py projects create '新故事'
+python3 cli.py projects select 1
+python3 cli.py script get
+python3 cli.py script set --file /path/to/script.txt
+python3 cli.py characters list
+python3 cli.py shots list
+python3 cli.py tasks preview SHOT_ID
+python3 cli.py tasks status TASK_ID
+python3 cli.py provider status
+python3 cli.py budgets show
+python3 cli.py audit tasks
+python3 cli.py export
+```
+
+默认连接8766；可在子命令前加 `--url http://127.0.0.1:8765`。CLI 保留旧镜头、图片、任务及预算命令；**当前 `provider configure` / `secret` 命令尚未加入 MiniMax 选项，也没有完整片段编辑子命令**，MiniMax 配置与片段制作使用网页。具体参数用 `python3 cli.py --help` 及对应子命令帮助查询。
+
+`shots approve` 仅供已有人类审阅证据的当前图片确认，不能由 Agent 自行代替用户；`--text-only` 不能代替图片质量批准。预算命令必须来自明确的人类金额和模型范围授权，不能把文档示例当作实际授权。
+
+## 验证与资料
+
+应用运行无需测试依赖；浏览器测试另需 Playwright Python 和 Chromium。
+
+```sh
+python3 -m unittest discover -s tests -p 'test_*.py'
+node --check static/app.js
+node --test tests/storyboard_checks.test.js
+python3 scripts/check_secrets.py
+# MiniMax 专项与隔离浏览器流程：
+python3 -m unittest discover -s tests -p 'test_minimax.py'
+python3 tests/browser_minimax.py
+```
+
+MiniMax 与页面删除这一版已通过261项 Python 回归、10项 JavaScript 测试、隔离 MiniMax 浏览器流程及本机只读页面验证。测试通过不等于每个供应商已经真实出片，实际授权、认证和效果须分别核验。旧分镜页面的浏览器脚本保留作历史参考，部分选择器仍需随页面删除更新，不作为当前导航验收命令。
+
+- 接入：[MiniMax](docs/MINIMAX_VIDEO.md) · [方舟](docs/ARK_INTEGRATION.md) · [Wan3](docs/WAN3_INTEGRATION.md)
+- 素材：[素材库](docs/MATERIAL_LIBRARY.md) · [设计与视图合同](docs/MATERIAL_RECIPES.md) · [图片修复](docs/SEEDREAM_EDIT_ADAPTER.md)
+- 制作 Skill：[剧本](skills/frame-screenplay/SKILL.md) · [角色](skills/frame-character-assets/SKILL.md) · [物品](skills/frame-object-assets/SKILL.md) · [视觉风格](skills/frame-visual-style/SKILL.md) · [素材参考视频提示词](skills/frame-video-prompts/SKILL.md)
+- 记录：[验证历史与限制](docs/VALIDATION.md) · [失败经验](docs/PRODUCTION_LESSONS.md) · [FFmpeg](docs/FFMPEG_SETUP.md)
+
+其他文档保留各次迭代的时间与上下文，其中旧默认模型或页面描述不代表当前产品入口。
 
 ## 代码量增长
 
@@ -10,137 +147,6 @@
 
 每次推送到 `main` 后及每天北京时间 09:23 由 GitHub Actions 自动重建，也可在 Actions → **Update code growth** 手动运行。图表与[每日数据](docs/metrics/code-growth.json)随仓库保存，无需第三方服务或额外密钥。本地重建：`python3 scripts/code_growth.py`。
 
-## 运行
+## 许可
 
-Python 3.9+，应用无 pip 或 npm 依赖：
-
-```sh
-python3 server.py
-# 默认端口被占用时：
-PORT=8766 python3 server.py
-```
-
-打开 http://127.0.0.1:8765 或 http://127.0.0.1:8766 。交付预览使用 8766。服务仅监听 loopback，适合单人本机使用；没有多用户认证，不应暴露公网。
-
-## 已实现
-
-- 新增可选 **火山方舟 Seedance 2.5 / Seedream 5.0 Flash** 接入：前台与 CLI 共用适配，支持视频异步任务及图片同步单图。保留现有默认、暂停与历史。详见[接入范围、预算和验证边界](docs/ARK_INTEGRATION.md)；当前只完成离线与模拟验证，不宣称真实生成已通过。
-
-- 顶部**工作空间 / 项目选择 / 新建项目**；当前选择持久化，刷新恢复。各项目的剧本、角色、分镜、检查、任务、配置与预算独立保存。没有季管理。
-- 保留《雾港来信》示例；新项目为空白且不标作示例。**首个 Demo 目标为30秒**，与Wan3单次最长30秒对齐。源码示例四镜头共27秒，仅是演示草案，不代表本机另行导入的真实制作项目或已交付媒体。此目标只针对首个Demo，长期系列仍支持1–3分钟、上限5分钟，通过多个镜头任务拼接。
-- 五个普通制作页面：制作总览、剧本、素材资产库、视频制作与预览、工具与设置。旧 `#shots` 地址自动转到视频制作；历史镜头数据与审批保留在开发者诊断。机器提示词、连续性手册、参考URL、请求JSON和ComfyUI工作流移至设置内独立的“开发者诊断”；版本审计也从此进入。原数据、导出和CLI保留。
-- 角色设定版本快照、分镜逐镜确认、参考图 URL、检查记录和当前项目 JSON 导出。创作导入记录来源文件/哈希/时间；每次保存有版本快照，真实任务绑定内容版本、实际请求与来源。
-- 点击已下载分镜图可放大：适应窗口/原尺寸、按钮/滚轮/双指缩放、键盘与焦点管理；当前图/历史图明确区分。打开预览不生成、不外传图片，也不清空正在编辑的详情。
-- 图片优先的分镜卡片：Qwen Image3.0生成/参考图编辑，完成下载本机；上方保留图片、任务状态和关键操作，详细文字默认独立折叠。单幅模板、时序预检和失败经验均保留，任务完成与质量批准分开。
-- 自动只查原图片/视频任务：8秒查询、错误退避至60秒、隐藏页30秒、每任务最多90次；终态停止查供应商。刷新/切项目后恢复，保留展开状态和未保存输入。无任务ID unknown不自动重提。
-- 总览由 `workflow_state.py` 纯函数统一推导有效当前审批、真实任务和人类视频审核；不手改阶段，不把图片完成当视频完成，修改内容会使旧审批失效。
-- Wan3/Prime 官方请求构建、图片参考/纯文本模式、异步提交与查询、状态归一化。输入使用 `media`，不会套用旧版 `reference_urls`。另保留 Wan2.6/Seedance 对照适配；可灵仅调研。
-- 网页可零请求预览 payload 与估价。分镜审批、预算预占、提交前持久化、供应商任务编号和 unknown 锁定防止重复提交。**本地UUID不等于供应商幂等保证**。
-- ComfyUI 本机连接检测、基础内置图像节点工作流提交与查询；任意付费/自定义节点仍被拦截。
-- 第05页以原生HTML视频播放器为主体，单镜和整片可选；支持播放/暂停、seek、音量，真实视频缺失时显示空态。原始图片/视频账本在独立开发者诊断；普通页面保留播放、状态、费用与反馈，预览不触发生成。后端本地媒体支持安全路径、Range/HEAD与正确MIME。
-- FFmpeg 拼接与可选 SRT 烧录脚本。本次已安装本机 FFmpeg/FFprobe，实际通过合成素材验证；二进制不随仓库分发。
-
-## 素材资产库：AI角色与物品
-
-素材以AI生成为主：从故事/简要设定整理角色与物品，预览本次必要视图和总费用，再生成独立母版候选、人工采用、基于明确母版补角度，最后供镜头固定版本引用。复用Qwen/Seedream真实图片适配，角色与物品任务明确分类，计入图片预算，不冒充镜头或视频。上传已有图片为可选补充。旧角色文字兼容保留，独立原图/历史/采用与镜头审批可追踪。界面不要求用户填机器提示或参考URL。
-
-当前实际生成仍暂停；接入和Mock验证不等于已经生成真实素材，也不自动恢复预算授权。详见 [素材库设计与验证](docs/MATERIAL_LIBRARY.md)。Codex按独立[角色Skill](skills/frame-character-assets/SKILL.md)/[物品Skill](skills/frame-object-assets/SKILL.md)交接设计和视图描述，后端按[薄运行时合同](docs/MATERIAL_RECIPES.md)校验来源、母版依赖与请求；不在Python里猜外观或自动理解Skill。普通用户查看可读设计，不填生成锚点。
-
-## 故事意图与内部一致性
-
-普通用户编辑剧本、人物设定和镜头意图，审阅画面并留下自然语言反馈，不需要填写道具状态或机器规则。动作链、跨镜道具状态、参考图用途由 Agent 通过内部 `creative_details` 维护；规则只做显式结构/文字核对，必要时向用户显示简短故事问题，不冒充语义或视觉质量检查。普通反馈保存和检查不撤销审批；镜头意图、内部结构或参考图的有效改动须重新审阅。没有自动重写提示词或自动生成。
-
-详见 [分镜辅助与诊断边界](docs/STORYBOARD_ASSIST.md)。
-
-## Wan3.0 配置与密钥隔离
-
-1. 在 [千问AI平台](https://platform.qianwenai.com/home/api-keys) 自行获取对应 API Key。不要在聊天、语音、截图或 GitHub 中提供密钥。
-2. 在网页“工具与设置”选择 **千问AI Wan3.0-Video-Prime**，保存分辨率、音频配置。在密码输入框填写密钥，点击“安全保存到仓库外”。后端本地存储名是 `WAN3_API_KEY`，发送时映射为官方 `Authorization: Bearer`。
-3. 实际密钥位于仓库外 `../.video-agent-studio-private/credentials.json`：目录0700、文件0600，原子写入。网页不回显；不使用 localStorage；不存 SQLite 或项目导出；HTTP日志不记录请求正文，异常隐藏上游内容，响应对已知凭据做脱敏。
-4. 可用 `STUDIO_SECRET_FILE=/absolute/private/folder/credentials.json` 显式指定仓库外路径，指向仓库内部会被拒绝。仓库 `.env.example` 仅说明非秘密启动选项；**应用不从仓库内 .env 读取或保存密钥**。
-5. 配置、历史请求受理、历史生成完成分别显示，不以存在密钥伪造即时连通。标准图片和Prime视频已有本机真实调用证据；Pro仅切换为后续默认并完成协议/报价测试，停止生成后没有追加Pro出图。
-
-按指定模型页使用北京接口 `https://cn-beijing.maas.qianwenaiapi.com/api/v1`，固定官方域名，不允许任意第三方 endpoint。平台详细文档另展示无地域前缀别名；当前不自动切换域名，也不把旧百炼 key 视作已验证兼容。跨账号、地域、套餐权限仍需用户账户核对。
-
-**没有全局付费开关**。图片与视频预算按项目/数据库分别授权、记账，不互相挪用；预算含历史花费与未结算/在途预占，不是每次新增金额。未知实际费用不视为0，未经验证的免费额度不提前抵扣。标准分类预算模式不设任意每镜次数门槛，保留明确redo、单在途、未知提交锁和语义/质量门槛，预算内必要修复无需反复确认价格。超相应余额才请求调整额度；预算授权不等于画面质量批准。来源与版本存仓库外授权文件及SQLite快照，网页和CLI均可查看/设置。旧有限次数试验授权只作兼容和历史。Prime按480P/720P/1080P分别¥0.45/0.90/1.80每秒保守预占；30秒为¥13.50/27/54。图像Pro按像素档位1K输出¥0.25、2K¥0.50，参考输入每张¥0.02；代码不混用标准版价格。参考输入当前仅支持最多10张 HTTPS 图片；不支持输入视频/音频、首尾帧或文件，以免遗漏输入秒数计费；后续可以在同一官方协议上扩展。
-
-暂停后所有新媒体入口均拒绝提交；预算/未花额度和历史保留，修改预算或默认模型不会自动恢复。用户“阶段性接受首版”单独记录，不宣称每项质量指标客观完美。
-
-## FFmpeg 成片
-
-```sh
-python3 assemble.py assets/shot-01.mp4 assets/shot-02.mp4 -o episode-01.mp4
-python3 assemble.py assets/shot-01.mp4 assets/shot-02.mp4 --subtitles assets/captions.srt -o episode-01-sub.mp4
-```
-
-准备同编码、同规格、同音轨结构的审核镜头。不会覆盖已有输出。暂无网页时间线、自动配音或混音；普通拼接可能保留输入音频时间戳差异，复杂剪辑应先标准化素材。
-
-## 测试与资料
-
-```sh
-python3 -m unittest discover -s tests -v
-node --check static/app.js
-python3 scripts/check_secrets.py
-# 可选浏览器测试需 Playwright Python + Chromium：
-python3 tests/browser_workspace.py
-python3 tests/browser_polling.py
-python3 tests/browser_video.py
-python3 tests/browser_lightbox.py
-python3 tests/browser_budgets.py
-python3 tests/browser_workflow.py
-python3 tests/browser_asset_library.py
-```
-
-- [当前默认Pro/Prime与报价](docs/MODEL_DEFAULTS.md)
-- [图片分镜API与音频](docs/STORYBOARD_IMAGE_API.md)
-- [失败经验](docs/PRODUCTION_LESSONS.md) · [429诊断](docs/RATE_LIMIT_DIAGNOSIS.md) · [角色资产后续规范](docs/CHARACTER_ASSET_BACKLOG.md)
-- [千问技能安装记录](docs/QIANWEN_SKILLS.md)
-- [API调研与当前决策](docs/VIDEO_API_RESEARCH.md)
-- [Wan3协议核对](docs/WAN3_INTEGRATION.md)
-- [FFmpeg安装验证](docs/FFMPEG_SETUP.md)
-- [验证结果与限制](docs/VALIDATION.md)
-- 制作 Skill：`skills/production/SKILL.md`
-
-运行数据在 `data/studio.db`，原有单项目数据自动迁移为示例项目。只发布源码、通用示例与文档；不发布数据库、凭据、私人素材或成片。尚未选择许可证，当前不附加 LICENSE；公开可读不代表授予任意使用许可。
-
-## 给 Codex 使用的 CLI
-
-CLI 通过同一个本机 HTTP 后端执行，复用 SQLite、分镜审批、预算和任务防重逻辑；请先启动网页后端。标准输出为 `{"ok":true,"data":…}`，失败为标准错误 JSON + 非零退出码。
-
-```sh
-python3 cli.py projects list
-python3 cli.py projects create '新故事'
-python3 cli.py projects select 1
-python3 cli.py script get
-python3 cli.py script set --file /path/to/script.txt --continuity-file /path/to/continuity.txt
-python3 cli.py characters add --file /path/to/character.json
-python3 cli.py shots add --file /path/to/shot.json
-python3 cli.py shots list
-python3 cli.py shots approve SHOT_ID
-python3 cli.py tasks preview SHOT_ID
-python3 cli.py tasks submit SHOT_ID
-python3 cli.py tasks status TASK_ID
-python3 cli.py images list
-python3 cli.py images preview SHOT_ID
-python3 cli.py images submit SHOT_ID
-python3 cli.py images status IMAGE_TASK_ID
-python3 cli.py audit sources
-python3 cli.py audit history
-python3 cli.py audit tasks
-python3 cli.py shots review SHOT_ID --file /path/to/review.txt
-python3 cli.py provider configure --provider wan3-prime --resolution 480p --image-model qwen-image-3.0-pro
-python3 cli.py provider status
-python3 cli.py budgets show
-python3 cli.py budgets authorize --image 3 --video 7 --source "用户明确的两项总预算授权来源"
-python3 cli.py export
-```
-
-上述3/7仅为命令格式示例，不能自动作为实际项目授权。`tasks submit` 仍受审批、对应预算、防重限制；终态需要语义明确重做时可加 `--redo`，在途/unknown不允许重提。Codex不得在没有人类图片审阅时自行执行 `shots approve`；此命令绑定当前图与内容哈希。仅确认文字规划时使用 `--text-only`，不能代替图片质量批准。角色和镜头支持 list/add/update，修改镜头会撤销其审批。可用 `--url http://127.0.0.1:8765`（放在子命令前）选择后端端口。
-
-密钥用网页入口，或在本人终端运行 `python3 cli.py secret --provider wan3-prime` 隐藏输入；没有明文 `--key` 参数，不接受管道。素材文件放项目外部/忽略素材目录，SQLite只存结构化记录和引用。SQLite使用WAL与30秒锁等待；写入带项目ID和版本检查，防止网页与CLI覆盖过期状态。网络调用前的数据库事务已提交，不持有长SQL写事务；本机单服务当前会串行化外部任务提交。
-
-局部画面编辑默认复用已接入的Seedream Flash：框选区域与描述、单次图片预占¥0.12、整图候选对比与人工采用；框选不保证框外像素不变。项目暂停/模型范围/图片预算仍必须满足，真实效果尚未验证。见[编辑与验收说明](docs/SEEDREAM_EDIT_ADAPTER.md)。原本机Comfy模板保留非默认，不要求下载本地模型才能使用云端编辑路径。
-
-### MiniMax 视频
-
-工具与设置可选择 MiniMax H3 系列，支持片段请求预览、素材/声音参考、费用预占、查询与本地播放。详见 [MiniMax 接入说明](docs/MINIMAX_VIDEO.md)。未提交真实生成，账户认证与效果尚未验证。
+仓库尚未选择许可证，当前不附加 LICENSE；公开可读不代表授予任意使用许可。
