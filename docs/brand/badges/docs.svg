@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="174" height="30" viewBox="0 0 174 30" role="img" aria-label="DOCS: START HERE">
+  <title>DOCS: START HERE</title>
+  <rect width="174" height="30" rx="4" fill="#dfb968"/>
+  <path d="M4 0H62V30H4A4 4 0 0 1 0 26V4A4 4 0 0 1 4 0Z" fill="#293a36"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" text-anchor="middle" font-size="11" font-weight="650" letter-spacing="1.1">
+    <text x="31.0" y="19" fill="#e4e9e2">DOCS</text>
+    <text x="118.0" y="19" fill="#172622">START HERE</text>
+  </g>
+</svg>

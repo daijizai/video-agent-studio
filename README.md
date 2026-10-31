@@ -1,4 +1,30 @@
-# Frame Studio / 视频制作 Agent 工作台
+<p align="center">
+  <img src="docs/brand/banner.svg" alt="Frame Studio — Your story. Your models. Your next frame." width="100%">
+</p>
+
+<h1 align="center">Frame Studio</h1>
+
+<p align="center">把故事，推进到下一帧。<br>剧本 · 素材 · AI 视频生成 · 审阅 · 交付</p>
+
+<p align="center">
+  <a href="#快速开始"><img src="docs/brand/badges/docs.svg" alt="文档：快速开始"></a>
+  <a href="#快速开始"><img src="docs/brand/badges/python.svg" alt="Python 3.9 及以上"></a>
+  <a href="#密钥预算与任务记录"><img src="docs/brand/badges/local.svg" alt="本地优先工作空间"></a>
+</p>
+<p align="center">
+  <a href="docs/ARK_INTEGRATION.md"><img src="docs/brand/badges/seedance.svg" alt="支持 Seedance 2.5 视频适配"></a>
+  <a href="docs/MINIMAX_VIDEO.md"><img src="docs/brand/badges/minimax.svg" alt="支持 MiniMax H3 视频适配"></a>
+  <a href="#给-codex-使用的-cli"><img src="docs/brand/badges/cli.svg" alt="CLI 已就绪"></a>
+</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#页面与制作流程">制作流程</a> ·
+  <a href="docs/MINIMAX_VIDEO.md">MiniMax 接入</a> ·
+  <a href="#从-cli-使用-minimax">CLI 指南</a>
+</p>
+
+---
 
 以 Codex 为制作中枢的本地 AI 视频工作台：从剧本、角色与物品素材，到片段生成、候选审阅、顺序连播和成片导出。前端使用原生 HTML/CSS/JS，Python + SQLite 保存项目、版本、任务与预算；FFmpeg/FFprobe 用于媒体处理和检查。
 
