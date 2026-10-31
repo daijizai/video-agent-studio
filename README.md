@@ -9,19 +9,13 @@
 <p align="center">
   <a href="#快速开始"><img src="docs/brand/badges/docs.svg" alt="文档：快速开始"></a>
   <a href="#快速开始"><img src="docs/brand/badges/python.svg" alt="Python 3.9 及以上"></a>
-  <a href="#密钥预算与任务记录"><img src="docs/brand/badges/local.svg" alt="本地优先工作空间"></a>
+  <a href="#页面与制作流程"><img src="docs/brand/badges/local.svg" alt="本地优先工作空间：制作流程"></a>
 </p>
 <p align="center">
   <a href="docs/ARK_INTEGRATION.md"><img src="docs/brand/badges/seedance.svg" alt="支持 Seedance 2.5 视频适配"></a>
   <a href="docs/MINIMAX_VIDEO.md"><img src="docs/brand/badges/minimax.svg" alt="支持 MiniMax H3 视频适配"></a>
-  <a href="#给-codex-使用的-cli"><img src="docs/brand/badges/cli.svg" alt="CLI 已就绪"></a>
-</p>
-
-<p align="center">
-  <a href="#快速开始">快速开始</a> ·
-  <a href="#页面与制作流程">制作流程</a> ·
-  <a href="docs/MINIMAX_VIDEO.md">MiniMax 接入</a> ·
-  <a href="#从-cli-使用-minimax">CLI 指南</a>
+  <a href="#从-cli-使用-minimax"><img src="docs/brand/badges/cli.svg" alt="CLI 已就绪：使用指南"></a>
+  <a href="LICENSE"><img src="docs/brand/badges/license.svg" alt="许可证：MIT"></a>
 </p>
 
 ---
@@ -219,4 +213,6 @@ MiniMax 与页面删除这一版已通过261项 Python 回归、10项 JavaScript
 
 ## 许可
 
-仓库尚未选择许可证，当前不附加 LICENSE；公开可读不代表授予任意使用许可。
+本项目采用 [MIT License](LICENSE)，允许使用、修改、分发和商业使用；分发本软件的副本或实质性部分时，须保留版权声明和许可证全文。
+
+第三方内容的许可与来源见 [THIRD_PARTY_NOTICES.md](resources/THIRD_PARTY_NOTICES.md)。
