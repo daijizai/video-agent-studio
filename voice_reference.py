@@ -20,6 +20,6 @@ def extract_initial(state,segment,task,root):
         if not 2<=duration<=30 or output.stat().st_size>15*1024*1024:return '首段音轨不满足声音参考格式或长度要求'
         speakers=list(dict.fromkeys(c.get('name') for c in state.get('characters',[]) if isinstance(c.get('name'),str) and c['name'].strip()))
         if not speakers:return '首段音轨已提取，待登记角色'
-        record={'enabled':True,'source_task_id':task['id'],'source_video_sha256':task['accepted_video_sha256'],'relative_path':'audio/'+name,'sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'duration':round(duration,3),'expected_speakers':speakers,'mapping_status':'用户已确认首段整体；各角色声音在混合音轨中的覆盖与归属待核对'}
+        record={'enabled':False,'source_task_id':task['id'],'source_video_sha256':task['accepted_video_sha256'],'relative_path':'audio/'+name,'sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'duration':round(duration,3),'expected_speakers':speakers,'mapping_status':'用户已确认首段整体；各角色声音在混合音轨中的覆盖与归属待核对'}
         brief['voice_reference']=record;state['project_brief']=brief;return record
     except (subprocess.SubprocessError,OSError,wave.Error,ZeroDivisionError):return '首段音轨提取失败，请检查是否含音频'
