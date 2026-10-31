@@ -27,3 +27,6 @@ main > header .workspace-home-link{white-space:nowrap;flex-shrink:0}
 .material-cover .material-prev-view,.material-cover .material-next-view{border:0;background:transparent;border-radius:6px}
 .material-cover .material-prev-view:hover:not(:disabled),.material-cover .material-next-view:hover:not(:disabled){background:#27332bc9}
 .material-cover .material-prev-view:disabled,.material-cover .material-next-view:disabled{background:transparent}
+
+.asset-heading-actions>button{min-height:44px;padding:10px 16px;font-size:14px;line-height:1.6}
+#image-model-error{color:#ecc39e;font-size:12px}
