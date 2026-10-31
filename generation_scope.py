@@ -90,6 +90,13 @@ def category_ledger(state,kind,limit=None):
    reported=task.get('reported_original_cny')
    if not live and isinstance(reported,(int,float)) and not isinstance(reported,bool) and math.isfinite(reported) and reported>=0 and task.get('reported_original_source'):
     estimate=Decimal(str(reported))
+   elif not live and kind=='video' and task.get('status')=='completed':
+    screenshot=task.get('screenshot_cost') or {}
+    if screenshot.get('source')=='用户提供的截图' and screenshot.get('matching')=='按用量推算金额匹配，未核对订单编号':
+     try:
+      value=Decimal(screenshot.get('amount_cny',''))
+      if value.is_finite() and value>=0:estimate=value
+     except (ValueError,TypeError,ArithmeticError):pass
    unknown+=1;committed+=estimate
    if live:inflight+=estimate
    else:unsettled+=estimate
@@ -123,7 +130,7 @@ def authorize_budgets(project_id,database,image_limit,video_limit,source,content
  for amount in (image_limit,video_limit):
   if type(amount) not in (int,float) or not isfinite(amount) or not 0<=amount<=100000:raise ValueError('分类预算须为0–100000的明确金额')
  if models is not None:
-  allowed={'qwen-image-3.0','qwen-image-3.0-pro','wan3.0-video','wan3.0-video-prime','wan2.6-r2v-flash','doubao-seedance-2-0-mini-260615','doubao-seedance-2-5-260628','doubao-seedream-5-0-flash-260915','comfy-masked-repair-sd15-v1'}
+  allowed={'MiniMax-H3','MiniMax-H3-Highspeed','MiniMax-H3-Lite','MiniMax-H3-Max','qwen-image-3.0','qwen-image-3.0-pro','wan3.0-video','wan3.0-video-prime','wan2.6-r2v-flash','doubao-seedance-2-0-mini-260615','doubao-seedance-2-5-260628','doubao-seedream-5-0-flash-260915','comfy-masked-repair-sd15-v1'}
   if not isinstance(models,list) or not models or any(not isinstance(m,str) or m not in allowed for m in models):raise ValueError('请明确指定已接入模型的预算授权范围')
  if local_repair_limit is not None and (type(local_repair_limit) is not int or not 1<=local_repair_limit<=100):raise ValueError('本机修复次数须为1–100的明确整数')
  data=read();key=str(project_id);scope=data.get(key)

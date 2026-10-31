@@ -38,7 +38,7 @@ def derive(state):
  materials=material_preparation(state)
  shots=state.get('shots',[]);approved=[s['id'] for s in shots if valid_approval(state,s)]
  prepared=bool(str(state.get('script','')).strip() and state.get('characters') and shots)
- all_approved=bool(shots and len(approved)==len(shots));videos=[t for t in state.get('tasks',[]) if t.get('kind')=='sequence' or t.get('provider') in ('wan3','wan3-prime','wan','seedance','seedance25')]
+ all_approved=bool(shots and len(approved)==len(shots));videos=[t for t in state.get('tasks',[]) if t.get('kind')=='sequence' or t.get('provider') in ('wan3','wan3-prime','wan','seedance','seedance25','minimax')]
  current=[t for t in videos if task_matches(state,t)];latest=current[-1] if current else None
  ready_video=bool(latest and latest.get('status')=='completed' and (latest.get('local_video') or latest.get('video_url')))
  final=state.get('final_video') or {};complete=bool(ready_video and final.get('task_id')==latest['id'] and final.get('review_status') in ('approved','accepted_first_version') and final.get('review_task_id')==latest['id'])
@@ -53,7 +53,7 @@ def derive(state):
  elif ready_video:code,label,next_title,action='VIDEO_REVIEW','视频已生成 · 待检查','播放并检查真实视频','检查时长、音轨、对白、人物与道具连续性；生成完成不等于成片质量通过。'
  else:code,label,next_title,action='VIDEO_ATTENTION','视频结果待核对','恢复原任务结果','任务记录存在但没有可用媒体，查询原任务并恢复下载，不自动重新生成。'
  active=0 if not prepared else 1 if code=='MATERIAL_PREPARATION' else 2 if not all_approved else 4 if ready_video else 3
- stages=[('story','故事开发',prepared,'#script'),('materials','素材准备',materials['complete'],'#characters'),('storyboard','分镜确认',all_approved,'#shots'),('generation','视频生成',ready_video,'#tasks'),('review','检查成片',complete,'#tasks')]
+ stages=[('story','故事开发',prepared,'#script'),('materials','素材准备',materials['complete'],'#characters'),('storyboard','分镜确认',all_approved,'#diagnostics'),('generation','视频生成',ready_video,'#tasks'),('review','检查成片',complete,'#tasks')]
  steps=[{'key':key,'label':text,'complete':done,'active':i==active and not complete,'href':href,**({'detail':str(materials['ready'])+'/'+str(materials['total'])+' 项就绪' if materials['total'] else '待整理'} if key=='materials' else {})} for i,(key,text,done,href) in enumerate(stages)]
  return {'code':code,'label':label,'next_title':next_title,'next_action':action,'approved_count':len(approved),'valid_approved_ids':approved,'shot_count':len(shots),'current_video_task_id':latest.get('id') if latest else None,'video_status':latest.get('status') if latest else None,'steps':steps,'materials':materials,'final_quality_approved':complete}
 

@@ -6,9 +6,10 @@ import ark_provider,asset_library,generation_scope,providers,media_files,video_q
 def digest(value):return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 def prepare(state,shot,library):
+    is_minimax=state.get('settings',{}).get('provider')=='minimax'
     asset_library.validate_references(state,shot,library)
     refs=shot.get('asset_references') or []
-    if not refs:raise ValueError('请先绑定已验收素材')
+    if not refs and not is_minimax:raise ValueError('请先绑定已验收素材')
     sources=[];data={};roles=[]
     for ref in refs:
         asset=next(a for a in asset_library.assets(state) if a['id']==ref['asset_id'])
@@ -16,6 +17,7 @@ def prepare(state,shot,library):
         for view in ref['views']:
             raw,info=library._checked_view(state['project_id'],view)
             if min(info['width'],info['height'])<300 or max(info['width'],info['height'])>6000 or len(raw)>=30*1024*1024:raise ValueError('素材尺寸不满足视频参考要求')
+            if is_minimax and (max(info['width'],info['height'])>5760 or not .4<=info['width']/info['height']<=2.5):raise ValueError('MiniMax素材尺寸或比例不符合要求')
             marker='https://material-video.invalid/'+info['sha256']+'.'+info['extension']
             data[marker]='data:'+info['mime']+';base64,'+base64.b64encode(raw).decode()
             sources.append({'asset_id':ref['asset_id'],'version':ref['version'],'name':ref['name'],'view_id':view['id'],'sha256':info['sha256']})
@@ -83,13 +85,14 @@ def prepare(state,shot,library):
         if shot.get('material_video_reference_mode')=='tail':
             raise ValueError('片尾已在本地裁剪，但尚未接入方舟可读取的上传地址；不能将原视频冒充片尾发送。请选择完整原视频或完成上传接入')
         parent=next((t for t in state['tasks'] if t['id']==shot['material_video_parent_task_id']),None)
-        if not parent or parent.get('provider')!='seedance25' or parent.get('status')!='completed' or parent.get('review_status')!='accepted':raise ValueError('前置视频必须为当前项目已验收的Seedance原任务')
+        if not parent or parent.get('provider') not in (('seedance25','minimax') if is_minimax else ('seedance25',)) or parent.get('status')!='completed' or parent.get('review_status')!='accepted':raise ValueError('前置视频必须为当前项目已验收的兼容供应商原任务')
         url=parent.get('video_url','');parsed=urllib.parse.urlparse(url)
-        if parsed.scheme!='https' or parsed.username or parsed.password or not parsed.hostname or not parsed.hostname.endswith('.volces.com'):raise ValueError('前置视频缺少方舟原始产物URL，请查询原任务')
+        if parsed.scheme!='https' or parsed.username or parsed.password or not parsed.hostname or not any(parsed.hostname.endswith('.'+domain) for domain in (('volces.com','hailuoai.com','minimax.chat') if is_minimax else ('volces.com',))):raise ValueError('前置视频缺少兼容供应商原始产物URL，请查询原任务')
         local=parent.get('local_video','');prefix='/media/'+str(state['project_id'])+'/'
         if not local.startswith(prefix):raise ValueError('前置视频尚未本地归档')
         file=(library.root/'assets'/local.removeprefix('/media/')).resolve()
         if not file.is_relative_to((library.root/'assets').resolve()) or not file.is_file():raise ValueError('前置视频原文件不可用')
+        if is_minimax and file.stat().st_size>50*1024*1024:raise ValueError('MiniMax参考视频不能超过50MB')
         sha=hashlib.sha256(file.read_bytes()).hexdigest()
         if parent.get('accepted_video_sha256')!=sha:raise ValueError('前置视频内容已变化，需要重新验收')
         info=parent.get('media_info') or {};seconds=float(info.get('duration') or parent['request']['duration'])
@@ -103,36 +106,44 @@ def prepare(state,shot,library):
         prompt+='\n视频1同时作为画质基准和动作衔接参考，保留画面的自然锐度和材质。'
     elif baseline and baseline['status']=='sent':
         prompt+='\n视频%d仅作为画质参考，借鉴清晰度、光线与材质，不复制剧情、动作或构图。'%(2 if parent_snapshot else 1)
-    if len(prompt)>500:
+    if len(prompt)>500 and not is_minimax:
         quality_warnings.append('本次Prompt超过500字；方舟建议精简中文提示词，但不会自动删除内容。')
     spec={'duration':shot['duration'],'prompt':prompt,'reference_images':list(data)}
-    prepared=ark_provider.prepare_video(spec,config)
+    prepared=providers.Provider('minimax').prepare(spec,config) if is_minimax else ark_provider.prepare_video(spec,config)
     if parent_snapshot:
         prepared['payload']['content'].append({'type':'video_url','video_url':{'url':parent_snapshot['url']},'role':'reference_video'})
-        prepared['payload']['ratio']='adaptive';prepared['payload']['omni_reference_task_type']='extend'
-        total_seconds=math.ceil(parent_snapshot['duration'])+int(shot['duration'])+1
-        if baseline and baseline['status']=='sent':total_seconds+=math.ceil(baseline['duration'])
-        # Billing uses output dimensions, which may differ from the source video's.
-        basis=prepared['estimate_basis'];tokens=Decimal(basis['width']*basis['height']*24*total_seconds)/1024
-        rate=Decimal('0.077' if config.get('resolution')=='1080p' else '0.07')
-        prepared['estimated_cny']=float((tokens*rate/1000).quantize(Decimal('.01'),rounding=ROUND_UP))
-        prepared['estimate_note']='保守沿用无视频输入单价，并计入前段视频时长与1秒余量；非实际折扣单价或账单'
+        if not is_minimax:prepared['payload']['ratio']='adaptive';prepared['payload']['omni_reference_task_type']='extend'
+        if not is_minimax:
+            total_seconds=math.ceil(parent_snapshot['duration'])+int(shot['duration'])+1
+            if baseline and baseline['status']=='sent':total_seconds+=math.ceil(baseline['duration'])
+            # Billing uses output dimensions, which may differ from the source video's.
+            basis=prepared['estimate_basis'];tokens=Decimal(basis['width']*basis['height']*24*total_seconds)/1024
+            rate=Decimal('0.077' if config.get('resolution')=='1080p' else '0.07')
+            prepared['estimated_cny']=float((tokens*rate/1000).quantize(Decimal('.01'),rounding=ROUND_UP))
+            prepared['estimate_note']='保守沿用无视频输入单价，并计入前段视频时长与1秒余量；非实际折扣单价或账单'
     if baseline and baseline['status']=='sent':
         prepared['payload']['content'].append({'type':'video_url','video_url':{'url':baseline['url']},'role':'reference_video'})
-        if not parent_snapshot:
+        if not parent_snapshot and not is_minimax:
             width,height=(1920,1080) if config.get('resolution')=='1080p' else (1280,720)
             tokens=Decimal(width*height*24*(math.ceil(baseline['duration'])+int(shot['duration'])+1))/1024
             rate=Decimal('0.077' if config.get('resolution')=='1080p' else '0.07')
             prepared['estimated_cny']=float((tokens*rate/1000).quantize(Decimal('.01'),rounding=ROUND_UP))
     for voice_snapshot in voice_snapshots:
         prepared['payload']['content'].append({'type':'audio_url','audio_url':{'url':'audio:sha256:'+voice_snapshot['sha256']},'role':'reference_audio'})
+    if is_minimax:
+        import minimax_provider
+        video_refs=[x for x in (parent_snapshot,baseline if baseline and baseline.get('status')=='sent' else None) if x]
+        if any(not 2<=float(x['duration'])<=15 for x in video_refs):raise ValueError('MiniMax每段参考视频须为2至15秒')
+        if any(not 2<=float(x['duration'])<=15 for x in voice_snapshots):raise ValueError('MiniMax每段声音参考须为2至15秒')
+        prepared=minimax_provider.estimate(prepared['payload'],sum(float(x['duration']) for x in video_refs),sum(float(x['duration']) for x in voice_snapshots))
+        quality_warnings.append('MiniMax H3未提供独立音频开关，本次不发送generate_audio参数；声音结果需生成后审阅。')
     manifest=copy.deepcopy(prepared['payload'])
     audio_index=0
     for item in prepared['payload']['content']:
         if item['type']=='image_url':item['image_url']['url']=data[item['image_url']['url']]
         elif item['type']=='audio_url':item['audio_url']['url']=voice_data[audio_index];audio_index+=1
     if len(json.dumps(prepared['payload']).encode())>64*1024*1024:raise ValueError('视频请求超过64MB')
-    snapshot={'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'quality_warnings':quality_warnings,'shot_language':copy.deepcopy(shot_language)}
+    snapshot={'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'quality_warnings':quality_warnings,'shot_language':copy.deepcopy(shot_language),**({'audio_mode':'provider_default'} if is_minimax else {})}
     return prepared,snapshot
 
 def operate(server,state,action,p):
@@ -187,9 +198,10 @@ def operate(server,state,action,p):
             retry_of=pending[0]['id']
         else:raise ValueError('该镜头已有在途或未知视频任务；未知重试须逐次明确确认，原预占仍保留')
     if any(t.get('shot_id')==shot['id'] for t in state['tasks']) and not p.get('redo'):raise ValueError('已有任务，请明确重做')
-    auth=generation_scope.check(state,server.DATA/'studio.db','video',prepared['estimated_cny'],ark_provider.VIDEO_MODEL)
-    provider=providers.Provider('seedance25');provider.headers()
-    task={'id':uuid.uuid4().hex,'shot_id':shot['id'],'name':shot['name'],'provider':'seedance25','kind':'material_reference_video','status':'submitting','provider_task_id':None,'estimate':prepared['estimated_cny'],'request':snapshot['request'],'material_snapshot':snapshot,'approval_snapshot':copy.deepcopy(shot['material_video_approval']),'authorization_id':auth,'submitted_epoch':time.time()}
+    auth=generation_scope.check(state,server.DATA/'studio.db','video',prepared['estimated_cny'],prepared['payload']['model'])
+    provider_id=prepared.get('provider','seedance25')
+    provider=providers.Provider(provider_id);provider.headers()
+    task={'id':uuid.uuid4().hex,'shot_id':shot['id'],'name':shot['name'],'provider':provider_id,'kind':'material_reference_video','status':'submitting','provider_task_id':None,'estimate':prepared['estimated_cny'],'request':snapshot['request'],'material_snapshot':snapshot,'approval_snapshot':copy.deepcopy(shot['material_video_approval']),'authorization_id':auth,'submitted_epoch':time.time()}
     if p.get('segment_id'):
         task['segment_id']=shot['id'];task['segment_draft_revision']=shot.get('draft_revision',1)
     if retry_of:task['retry_of_unknown_task_id']=retry_of;task['retry_authorization_source']=str(p.get('retry_source','用户明确确认重复计费风险后重试'))[:500]
@@ -197,7 +209,7 @@ def operate(server,state,action,p):
     try:task['provider_task_id']=provider.submit(prepared,task['id'],authorized=True);task['status']='queued'
     except providers.ProviderHTTPError as error:
         task['submission_diagnostics']=copy.deepcopy(error.details)
-        definitive=error.details.get('http_status') in (400,401,403,404,413,415,422)
+        definitive=error.details.get('http_status') in (400,401,402,403,404,413,415,422)
         task['status']='rejected' if definitive else 'unknown'
         if definitive:task['actual_cost_cny']=0
         server.save(state)

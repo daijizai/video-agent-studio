@@ -48,11 +48,12 @@ def select_reference(state, shot, root, parent):
         return {'task_id': task_id, 'status': 'not_sent'}, [str(error)]
     if profile.get('baseline_sha256') != digest:
         return {'task_id':task_id,'status':'not_sent'}, ['画质基准版本已变化，请重新设置']
-    if base.get('provider')!='seedance25':
+    is_minimax=state.get('settings',{}).get('provider')=='minimax'
+    if base.get('provider') not in (('seedance25','minimax') if is_minimax else ('seedance25',)):
         return {'task_id':task_id,'status':'not_sent'}, ['当前画质基准不是可确认的Seedance原始视频，未自动传入']
     info = base.get('media_info') or {}
     seconds = info.get('duration')
-    if type(seconds) not in (int,float) or not math.isfinite(seconds) or not 2 <= seconds <= 30:
+    if type(seconds) not in (int,float) or not math.isfinite(seconds) or not 2 <= seconds <= (15 if is_minimax else 30):
         return {'task_id':task_id,'status':'not_sent'}, ['画质基准视频时长不符合接口要求']
     result = {'task_id':task_id,'sha256':digest,'duration':seconds}
     if parent and parent['task_id'] == task_id:
@@ -60,7 +61,7 @@ def select_reference(state, shot, root, parent):
     if base.get('segment_id') == shot.get('id'):
         return {**result,'status':'not_sent'}, ['画质基准属于当前片段，未将同一片段作为自己的额外参考']
     parsed = urllib.parse.urlparse(base.get('video_url',''))
-    if parsed.scheme!='https' or parsed.username or parsed.password or not parsed.hostname or not parsed.hostname.endswith('.volces.com'):
+    if parsed.scheme!='https' or parsed.username or parsed.password or not parsed.hostname or not any(parsed.hostname.endswith('.'+domain) for domain in (('volces.com','hailuoai.com','minimax.chat') if is_minimax else ('volces.com',))):
         return {**result,'status':'not_sent'}, ['画质基准缺少可用的方舟原始视频地址']
     issues=[]
     params={k.lower():v for k,v in urllib.parse.parse_qs(parsed.query).items()}
@@ -72,8 +73,8 @@ def select_reference(state, shot, root, parent):
                 issues.append('画质基准原始地址已过期，请刷新原任务或配置长期保存')
         except (KeyError,ValueError,IndexError,OverflowError):
             issues.append('画质基准地址的有效期无法核实，请刷新原任务')
-    if parent and float(parent['duration']) + seconds > 30:
-        issues.append('上一段与画质基准合计超过方舟参考视频30秒上限；本次仅传上一段')
+    if parent and float(parent['duration']) + seconds > (15 if is_minimax else 30):
+        issues.append('上一段与画质基准合计超过'+('MiniMax参考视频15秒' if is_minimax else '方舟参考视频30秒')+'上限；本次仅传上一段')
     if issues:return {**result,'status':'not_sent'}, issues
     return {**result,'status':'sent','url':base['video_url']}, []
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 def cache_video(root,project_id,task_id,url):
  p=urllib.parse.urlparse(url)
- if p.scheme!='https' or p.username or p.password or not p.hostname or not any(p.hostname.endswith('.'+d) for d in ('aliyuncs.com','alicdn.com','qianwenaiapi.com','volces.com','byteimg.com')):raise ValueError('不支持的模型视频下载域名')
+ if p.scheme!='https' or p.username or p.password or not p.hostname or not any(p.hostname.endswith('.'+d) for d in ('aliyuncs.com','alicdn.com','qianwenaiapi.com','volces.com','byteimg.com','hailuoai.com','minimax.chat')):raise ValueError('不支持的模型视频下载域名')
  target=Path(root)/'assets'/str(project_id)/(task_id+'.mp4');target.parent.mkdir(parents=True,exist_ok=True)
  if not target.exists():
   temp=target.with_suffix('.part')

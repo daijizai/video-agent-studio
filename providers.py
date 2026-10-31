@@ -9,6 +9,7 @@ import urllib.parse
 from decimal import Decimal, ROUND_UP
 
 CATALOG = {
+    'minimax': {'label':'MiniMax H3 · 可选','model':'MiniMax-H3','key_env':'MINIMAX_API_KEY','reference_limit':9},
     'seedance25': {'label':'字节 Seedance 2.5 · 默认','model':'doubao-seedance-2-5-260628','key_env':'ARK_API_KEY','reference_limit':30},
     'wan3-prime': {'label':'千问AI Wan3.0-Video-Prime · 可选','model':'wan3.0-video-prime','key_env':'WAN3_API_KEY','reference_limit':10},
     'wan3': {'label':'千问AI Wan3.0-Video · 主用','model':'wan3.0-video','key_env':'WAN3_API_KEY','reference_limit':10},
@@ -23,7 +24,7 @@ def config_status(state=None):
     tasks=(state or {}).get('tasks',[])
     result=[]
     for key,value in CATALOG.items():
-        observed=[t for t in tasks if (t.get('request',{}).get('model') or t.get('model'))==value['model']]
+        observed=[t for t in tasks if (t.get('provider')=='minimax' if key=='minimax' else (t.get('request',{}).get('model') or t.get('model'))==value['model'])]
         accepted=[t for t in observed if t.get('provider_task_id')]
         result.append({**value,'id':key,'credential_present':bool(secret_store.get_key(value['key_env'])),'endpoint_configured':bool(os.getenv('WAN_WORKSPACE_ID')) if key=='wan' else True,'connection':'unverified','paid_enabled':False,'last_execution_status':accepted[-1]['status'] if accepted else None,'execution_evidence':'historical project task only, not a fresh auth probe'})
     return result
@@ -45,7 +46,7 @@ def transport(method, url, headers, payload=None):
             return json.load(response)
     except urllib.error.HTTPError as error:
         try:
-            body=json.load(error);code=body.get('code') or body.get('error',{}).get('code') or 'HTTPError'
+            body=json.load(error);code=body.get('code') or body.get('error',{}).get('code') or body.get('error',{}).get('type') or 'HTTPError'
             code=code if isinstance(code,str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,100}',code) else 'HTTPError'
         except Exception:body={};code='HTTPError'
         detail=body.get('error',{}) if isinstance(body.get('error',{}),dict) else {}
@@ -63,6 +64,7 @@ class Provider:
         self.request = request
 
     def base_url(self):
+        if self.id=='minimax':return 'https://api.minimax.cn'
         if self.id in ('wan3','wan3-prime'):
             return 'https://cn-beijing.maas.qianwenaiapi.com/api/v1'
         if self.id in ('seedance','seedance25'): return 'https://ark.cn-beijing.volces.com/api/v3'
@@ -79,6 +81,9 @@ class Provider:
         return headers
 
     def prepare(self, shot, config):
+        if self.id=='minimax':
+            from minimax_provider import prepare_video
+            return prepare_video(shot,config)
         if self.id == 'seedance25':
             from ark_provider import prepare_video
             return prepare_video(shot,config)
@@ -133,6 +138,12 @@ class Provider:
     def submit(self, prepared, idempotency_key, authorized=False):
         if not authorized: raise ValueError('生成未获得后端项目预算与语义授权')
         headers = self.headers()
+        if self.id=='minimax':
+            if prepared.get('provider')!='minimax':raise ValueError('供应商与请求不匹配')
+            response=self.request('POST',self.base_url()+'/v2/video_generation',headers,prepared['payload'])
+            task_id=response.get('task_id')
+            if not isinstance(task_id,(str,int)) or isinstance(task_id,bool) or not re.fullmatch(r'[A-Za-z0-9_-]+',str(task_id)):raise RuntimeError('MiniMax未返回任务编号；结果未知，禁止自动重试')
+            return str(task_id)
         # idempotency_key is a local durable intent identifier; neither API is assumed to deduplicate it.
         path = '/services/aigc/video-generation/video-synthesis' if self.id in ('wan','wan3','wan3-prime') else '/contents/generations/tasks'
         response = self.request('POST', self.base_url() + path, headers, prepared['payload'])
@@ -142,6 +153,9 @@ class Provider:
 
     def status(self, task_id):
         if not re.fullmatch(r'[A-Za-z0-9_-]+', task_id): raise ValueError('非法任务编号')
+        if self.id=='minimax':
+            from minimax_provider import status
+            return status(self,task_id)
         path = '/tasks/' if self.id in ('wan','wan3','wan3-prime') else '/contents/generations/tasks/'
         headers=self.headers();headers.pop('X-DashScope-Async',None)
         response = self.request('GET', self.base_url() + path + task_id, headers)

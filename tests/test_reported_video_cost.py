@@ -25,6 +25,11 @@ class ReportedVideoCostTests(unittest.TestCase):
  def test_unknown_request_cannot_be_cleared_by_a_reported_amount(self):
   state={'tasks':[{'status':'unknown','estimate':25.71,'reported_original_cny':0,'reported_original_source':'user'}]}
   self.assertEqual(generation_scope.category_ledger(state,'video',100)['committed_cny'],25.71)
+ def test_screenshot_amount_updates_completed_estimate_without_claiming_settlement(self):
+  state={'tasks':[{'status':'completed','estimate':30,'actual_cost_cny':None,'screenshot_cost':{'amount_cny':'12.3400','source':'用户提供的截图','matching':'按用量推算金额匹配，未核对订单编号'}},
+                  {'status':'unknown','estimate':4,'screenshot_cost':{'amount_cny':'0','source':'用户提供的截图','matching':'按用量推算金额匹配，未核对订单编号'}}]}
+  ledger=generation_scope.category_ledger(state,'video',100)
+  self.assertEqual(ledger['committed_cny'],16.34);self.assertIsNone(ledger['actual_total_cny']);self.assertEqual(ledger['actual_unknown_tasks'],2)
  def test_unsourced_amount_cannot_reduce_budget(self):
   state={'tasks':[{'status':'completed','estimate':10.59,'reported_original_cny':1}]}
   self.assertEqual(generation_scope.category_ledger(state,'video',100)['committed_cny'],10.59)

@@ -4,7 +4,7 @@ import os
 import tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent
-ALLOWED = ('WAN3_API_KEY', 'DASHSCOPE_API_KEY', 'ARK_API_KEY')
+ALLOWED = ('WAN3_API_KEY', 'DASHSCOPE_API_KEY', 'ARK_API_KEY', 'MINIMAX_API_KEY')
 
 def secret_path():
     path=Path(os.getenv('STUDIO_SECRET_FILE', str(ROOT.parent/'.video-agent-studio-private'/'credentials.json'))).expanduser().resolve()

@@ -389,6 +389,9 @@ class Handler(SimpleHTTPRequestHandler):
                     if not re.fullmatch(r'Bill[0-9]{8,40}',bill_id):raise ValueError('请提供用户账单编号')
                     task['reported_original_cny']=amount
                     task['reported_original_source']={'type':'user_bill_original','bill_id':bill_id,'note':'用户提供的账单原价；按用量推定任务对应，折扣后实付尚未核对'}
+                elif action=='/api/video-cost/report-screenshot':
+                    import video_costing
+                    video_costing.record_screenshot(s,p.get('amounts'));save(s);return self.reply(read())
                 elif action=='/api/save':
                     previous_shots=copy.deepcopy(s['shots'])
                     for key in ['title','episode','script','continuity','characters','shots','budget','target_duration','production_demo','sequence_prompt','authorization_note','source_manifest','project_brief','quality_lessons','final_video','budget_authorizations']:
@@ -425,7 +428,7 @@ class Handler(SimpleHTTPRequestHandler):
                     record=generation_scope.authorize_budgets(s['project_id'],DATA/'studio.db',p.get('image_limit'),p.get('video_limit'),source,s['revision'],models=p.get('models'),local_repair_limit=p.get('local_repair_limit'))
                     s['budget_authorizations']=generation_scope.read()[str(s['project_id'])]['budget_authorization_history']
                 elif action=='/api/settings':
-                    s['settings']={**s['settings'], **{k:p[k] for k in ('comfy_url','workflow','provider','resolution','audio','ratio','image_model') if k in p}}
+                    s['settings']={**s['settings'], **{k:p[k] for k in ('comfy_url','workflow','provider','resolution','audio','ratio','image_model','minimax_model') if k in p}}
                 elif action=='/api/credentials':
                     name=providers.CATALOG.get(p.get('provider'),{}).get('key_env')
                     secret_store.write_key(name,p.get('value'))
