@@ -11,6 +11,14 @@
 5. 明确授权项目预算及所选MiniMax模型后才能生成。设置中的预算表单提供可选模型授权框；配置密钥或预算不会解除既有生成暂停。接入工作不会自动扩大授权。
 6. 查询原任务，成功后下载MP4并在候选视频中播放、人工验收。未知提交保留预占，不自动重试。
 
+## CLI
+
+`provider configure --provider minimax --model MiniMax-H3 --resolution 768P` 配置模型，`secret --provider minimax` 在交互终端隐藏输入并通过本机后端保存密钥。所有命令前加 `python3 cli.py`。
+
+片段命令：`segments create` → `segments update SEGMENT_ID --file draft.json` → `segments preview SEGMENT_ID` → 用户审阅后 `segments approve SEGMENT_ID --fingerprint PREVIEW_FINGERPRINT --source HUMAN_CONFIRMATION_SOURCE` → `segments submit SEGMENT_ID`。审批不自动授权预算或恢复暂停；模型或输入变化会使旧确认失效。`segments tasks SEGMENT_ID` 列出候选，`segments status LOCAL_TASK_ID` 查询原任务。
+
+完整草稿字段和可复制命令见 [README 的 CLI 说明](../README.md#从-cli-使用-minimax)。没有把文档示例或Agent自述当作真实用户批准，也没有以真实生成验证接入。
+
 ## 已接入范围
 
 - 文本生成和素材图片参考生成；素材不作为隐式首帧。
@@ -24,6 +32,8 @@
 ## 验证
 
 `python3 -m unittest discover -s tests -p 'test_minimax.py'`
+
+`python3 -m unittest discover -s tests -p 'test_cli*.py'`
 
 `python3 tests/browser_minimax.py`
 

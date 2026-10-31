@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Codex-friendly JSON client. The running HTTP backend owns all persistence and rules."""
-import argparse,getpass,json,sys,urllib.request,urllib.error,urllib.parse,uuid
+import argparse,getpass,json,sys,urllib.request,urllib.error,urllib.parse,uuid,warnings
 from pathlib import Path
 
 def main():
@@ -31,9 +31,26 @@ def main():
         p=tasks.add_parser(name);p.add_argument('shot_id')
         if name=='submit':p.add_argument('--engine',choices=['provider','comfy'],default='provider');p.add_argument('--redo',action='store_true')
     p=tasks.add_parser('status');p.add_argument('id')
+    providers=['wan3-prime','wan3','wan','seedance','seedance25','minimax']
     settings=sub.add_parser('provider').add_subparsers(dest='action',required=True)
-    settings.add_parser('status');p=settings.add_parser('configure');p.add_argument('--provider',choices=['wan3-prime','wan3','wan','seedance','seedance25'],default='seedance25');p.add_argument('--resolution',choices=['480p','720p','1080p'],default='720p');p.add_argument('--audio',action='store_true');p.add_argument('--ratio',choices=['16:9','9:16','1:1'],default='16:9');p.add_argument('--image-model',choices=['qwen-image-3.0-pro','qwen-image-3.0','doubao-seedream-5-0-flash-260915'])
-    p=sub.add_parser('secret');p.add_argument('--provider',choices=['wan3-prime','wan3','wan','seedance','seedance25'],default='seedance25')
+    settings.add_parser('status');p=settings.add_parser('configure')
+    p.add_argument('--provider',choices=providers,default='seedance25')
+    p.add_argument('--model','--minimax-model',dest='minimax_model',help='MiniMax H3 model name; only with --provider minimax')
+    p.add_argument('--resolution',help='MiniMax: 768P / 2K (H3), 480P / 768P (other H3 models); other providers: 480p / 720p / 1080p')
+    audio=p.add_mutually_exclusive_group();audio.add_argument('--audio',dest='audio',action='store_true');audio.add_argument('--no-audio',dest='audio',action='store_false');p.set_defaults(audio=None)
+    p.add_argument('--ratio',choices=['21:9','16:9','4:3','1:1','3:4','9:16'],default='16:9')
+    p.add_argument('--image-model',choices=['qwen-image-3.0-pro','qwen-image-3.0','doubao-seedream-5-0-flash-260915'])
+    p=sub.add_parser('secret');p.add_argument('--provider',choices=providers,default='seedance25')
+    segments=sub.add_parser('segments',help='Editable video segments; preview, human approval and submit are separate').add_subparsers(dest='action',required=True)
+    for action in ('init','list','create'):segments.add_parser(action)
+    for action in ('get','update','preview','approve','submit','tasks'):
+        p=segments.add_parser(action);p.add_argument('id',help='Segment ID')
+        if action=='update':p.add_argument('--file',required=True,help='JSON draft, using the same fields as the web segment editor')
+        if action=='approve':
+            p.add_argument('--fingerprint',required=True,help='Fingerprint from a preview explicitly reviewed by the user')
+            p.add_argument('--source',required=True,help='Evidence of explicit human confirmation of the preview; not budget authorization')
+        if action=='submit':p.add_argument('--redo',action='store_true',help='Explicitly redo a terminal task; never retries unknown submissions')
+    p=segments.add_parser('status');p.add_argument('id',help='Local segment task ID, not the provider task ID')
     budgets=sub.add_parser('budgets').add_subparsers(dest='action',required=True)
     budgets.add_parser('show');p=budgets.add_parser('authorize');p.add_argument('--image',type=float,required=True);p.add_argument('--video',type=float,required=True);p.add_argument('--source',required=True,help='Explicit human total-budget authorization source; not quality approval');p.add_argument('--local-repairs',type=int,help='Explicit finite local repair count; does not resume generation');p.add_argument('--model',action='append',dest='models',help='Explicitly add this model to the budget scope; does not resume paused generation')
     p=sub.add_parser('budget');p.add_argument('amount',type=float)
@@ -64,17 +81,62 @@ def main():
             else:result=api('projects/switch',{'project_id':args.id})
         elif group=='provider':
             if args.action=='status':result=api('providers')
-            else:result=api('settings',{'provider':args.provider,'resolution':args.resolution,'audio':args.audio,'ratio':args.ratio,**({'image_model':args.image_model} if args.image_model else {})},api('state'))
+            else:
+                payload={'provider':args.provider,'ratio':args.ratio}
+                if args.provider=='minimax':
+                    from minimax_provider import MODELS
+                    model=args.minimax_model or 'MiniMax-H3'
+                    if model not in MODELS:raise ValueError('未支持的MiniMax模型；可选：'+', '.join(MODELS))
+                    resolution=(args.resolution or '768P').upper()
+                    if resolution not in MODELS[model]['rates']:raise ValueError('当前MiniMax模型支持分辨率：'+' / '.join(MODELS[model]['rates']))
+                    if args.audio is not None:raise ValueError('MiniMax没有独立音频开关；声音参考在片段草稿中设置')
+                    payload.update(minimax_model=model,resolution=resolution)
+                else:
+                    if args.minimax_model:raise ValueError('--model仅用于MiniMax配置')
+                    resolution=args.resolution or '720p'
+                    if resolution not in ('480p','720p','1080p'):raise ValueError('此供应商分辨率请选择480p / 720p / 1080p')
+                    if args.ratio not in ('16:9','9:16','1:1'):raise ValueError('此CLI供应商配置支持16:9 / 9:16 / 1:1画幅')
+                    payload.update(resolution=resolution)
+                    if args.audio is not None:payload['audio']=args.audio
+                if args.image_model:payload['image_model']=args.image_model
+                result=api('settings',payload,api('state'))
         elif group=='budgets':
             result=api('budgets') if args.action=='show' else api('budgets/authorize',{'image_limit':args.image,'video_limit':args.video,'source':args.source,'local_repair_limit':args.local_repairs,**({'models':args.models} if args.models else {})},api('state'))
         elif group=='secret':
             # No --key or plaintext argv, no stdin fallback that echoes input.
             if not sys.stdin.isatty():raise ValueError('密钥配置须在交互终端运行；不可通过命令行参数或管道输入')
-            value=getpass.getpass('API key（隐藏输入，写入仓库外）: ')
-            result=api('credentials',{'provider':args.provider,'value':value},api('state'));value=None
+            value=None
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter('error',getpass.GetPassWarning)
+                    value=getpass.getpass('API key（隐藏输入，写入仓库外）: ')
+                result=api('credentials',{'provider':args.provider,'value':value},api('state'))
+            finally:value=None
         else:
             state=api('state')
-            if group=='audit':
+            if group=='segments':
+                rows=state.get('video_segments',[])
+                if args.action=='list':result=rows
+                elif args.action in ('init','create'):
+                    result=api('material-video/'+('init-segments' if args.action=='init' else 'create-segment'),{},state)
+                elif args.action=='status':
+                    task=next((t for t in state['tasks'] if t['id']==args.id and (t.get('segment_id') in {x['id'] for x in rows} or any(t['id'] in x.get('legacy_task_ids',[]) for x in rows))),None)
+                    if task is None:raise ValueError('当前项目的片段任务不存在')
+                    result=api('provider/poll',{'task_id':task['id']},state)
+                else:
+                    segment=next((x for x in rows if x['id']==args.id),None)
+                    if segment is None:raise ValueError('视频片段不存在；可先运行segments init或segments create')
+                    if args.action=='get':result=segment
+                    elif args.action=='tasks':result=[t for t in state['tasks'] if t.get('segment_id')==args.id or t['id'] in segment.get('legacy_task_ids',[])]
+                    else:
+                        payload={'segment_id':args.id}
+                        if args.action=='update':payload['draft']=file_json(args.file)
+                        elif args.action=='approve':
+                            if not args.source.strip():raise ValueError('请提供人类明确确认当前预览的来源')
+                            payload.update(fingerprint=args.fingerprint,source=args.source)
+                        elif args.action=='submit':payload['redo']=args.redo
+                        result=api('material-video/'+('save-segment' if args.action=='update' else args.action),payload,state)
+            elif group=='audit':
                 if args.action=='sources':result=state.get('source_manifest',[])
                 elif args.action=='history':result=api('revisions')
                 else:result=state.get('image_tasks',[])+state['tasks']
@@ -121,7 +183,7 @@ def main():
                 else:
                     task=next((t for t in state['tasks'] if t['id']==args.id),None)
                     if task is None:raise ValueError('任务不存在')
-                    result=api('provider/poll' if task['provider'] in ('wan3-prime','wan3','wan','seedance','seedance25') else 'poll',{'task_id':args.id},state)
+                    result=api('provider/poll' if task['provider'] in ('wan3-prime','wan3','wan','seedance','seedance25','minimax') else 'poll',{'task_id':args.id},state)
         print(json.dumps({'ok':True,'data':result},ensure_ascii=False));return 0
     except Exception as e:
         print(json.dumps({'ok':False,'error':str(e)},ensure_ascii=False),file=sys.stderr);return 1

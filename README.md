@@ -112,7 +112,50 @@ python3 cli.py audit tasks
 python3 cli.py export
 ```
 
-默认连接8766；可在子命令前加 `--url http://127.0.0.1:8765`。CLI 保留旧镜头、图片、任务及预算命令；**当前 `provider configure` / `secret` 命令尚未加入 MiniMax 选项，也没有完整片段编辑子命令**，MiniMax 配置与片段制作使用网页。具体参数用 `python3 cli.py --help` 及对应子命令帮助查询。
+默认连接8766；可在子命令前加 `--url http://127.0.0.1:8765`。CLI 支持 MiniMax 模型配置、隐藏输入密钥、片段草稿与生成流程，并保留旧镜头、图片、任务及预算命令。具体参数用 `python3 cli.py --help` 及对应子命令帮助查询。
+
+### 从 CLI 使用 MiniMax
+
+先启动后端，在本人交互终端配置模型并隐藏输入密钥：
+
+```sh
+python3 cli.py provider configure --provider minimax --model MiniMax-H3 --resolution 768P --ratio 16:9
+python3 cli.py secret --provider minimax
+python3 cli.py segments create
+```
+
+`--model` 也可写为 `--minimax-model`，可选 H3、Highspeed、Lite、Max 的完整模型名；省略时选择 `MiniMax-H3`，省略分辨率时选择 `768P`。不兼容的模型/分辨率组合会报错，不会自动降级。MiniMax 不接受 `--audio` / `--no-audio`；其他供应商支持这两个参数，省略时保留已有音频设置。模型配置和密钥保存不授权预算、不解除暂停。
+
+将草稿保存为自己的 JSON 文件，例如：
+
+```json
+{
+  "name": "开场片段",
+  "duration": 6,
+  "material_video_prompt": "在这里填写自己审阅的视频描述。",
+  "material_video_audio": false,
+  "reference_asset_ids": []
+}
+```
+
+`material_video_audio` 在 MiniMax 路径仅控制是否使用已有声音参考；没有素材图片时可以文生视频。`reference_asset_ids` 可填写本项目已采用的素材 ID；后端按与网页相同的版本及质量合同检查。JSON 还支持 `material_video_parent_task_id`、`video_style`、`shot_language_ids` 等现有片段草稿字段。
+
+用创建结果中的片段 ID 替换下面的 `SEGMENT_ID`，按顺序操作：
+
+```sh
+python3 cli.py segments update SEGMENT_ID --file /path/to/segment.json
+python3 cli.py segments preview SEGMENT_ID
+# 用户明确审阅当前完整输入和费用后，复制该次预览返回的 fingerprint：
+python3 cli.py segments approve SEGMENT_ID --fingerprint PREVIEW_FINGERPRINT --source '记录用户明确确认这份预览的实际来源'
+# 需事先已有该模型的明确预算授权；此命令可能产生真实生成费用：
+python3 cli.py segments submit SEGMENT_ID
+python3 cli.py segments tasks SEGMENT_ID
+python3 cli.py segments status LOCAL_TASK_ID
+```
+
+不能由 Agent 编造 `--source` 或自行把预览结果当作用户批准。`approve` 只记录指定输入的确认；`submit` 仍由后端检查暂停、模型授权、预算、当前输入指纹和任务防重。修改模型、Prompt 或素材后必须重新预览确认；`--redo` 仅用于明确重做，不能绕过在途或 unknown 任务锁。
+
+`segments list/get/tasks` 为只读；`segments init` 显式初始化旧项目的片段结构。`segments status` 和 `tasks status` 均可查询 MiniMax 原任务，参数使用本机任务 ID，而非供应商任务 ID；不会重新提交生成。密钥不接受命令行明文或管道，终端无法隐藏输入时拒绝保存。
 
 `shots approve` 仅供已有人类审阅证据的当前图片确认，不能由 Agent 自行代替用户；`--text-only` 不能代替图片质量批准。预算命令必须来自明确的人类金额和模型范围授权，不能把文档示例当作实际授权。
 
@@ -127,6 +170,7 @@ node --test tests/storyboard_checks.test.js
 python3 scripts/check_secrets.py
 # MiniMax 专项与隔离浏览器流程：
 python3 -m unittest discover -s tests -p 'test_minimax.py'
+python3 -m unittest discover -s tests -p 'test_cli*.py'
 python3 tests/browser_minimax.py
 ```
 
