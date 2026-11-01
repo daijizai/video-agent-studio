@@ -51,6 +51,40 @@ class MaterialVideoTests(unittest.TestCase):
     self.assertEqual(snapshot['opening_frame']['id'],frame['id']);self.assertNotIn('data:image',str(snapshot))
    file=Path(tmp)/'assets'/'4'/Path(frame['url']).name;file.write_bytes(png(384,512,color=(1,2,3)))
    with self.assertRaisesRegex(ValueError,'已变化'):mv.prepare(self.state,self.shot,self.lib)
+ def test_opening_reference_sends_approved_opening_and_material_with_bound_snapshot(self):
+  import base64,tempfile
+  from test_asset_library import png
+  import video_segments
+  with tempfile.TemporaryDirectory() as tmp:
+   self.lib.root=Path(tmp);self.server.ROOT=Path(tmp);self.state['settings'].update(ratio='3:4',provider='seedance25');self.state['video_segments']=[self.shot]
+   frame=video_segments.operate(self.server,self.state,'add-opening-candidate',{'segment_id':'s','base64':base64.b64encode(png(384,512)).decode()})['candidate']
+   with self.assertRaisesRegex(ValueError,'审阅'):video_segments.operate(self.server,self.state,'save-segment',{'segment_id':'s','draft':{'video_input_mode':'opening_reference','opening_frame_id':frame['id']}})
+   video_segments.operate(self.server,self.state,'approve-opening',{'segment_id':'s','frame_id':frame['id']})
+   video_segments.operate(self.server,self.state,'save-segment',{'segment_id':'s','draft':{'video_input_mode':'opening_reference','opening_frame_id':frame['id']}})
+   prepared,snapshot=mv.prepare(self.state,self.shot,self.lib)
+   images=[x for x in prepared['payload']['content'] if x['type']=='image_url']
+   self.assertEqual([x['role'] for x in images],['reference_image','reference_image'])
+   self.assertEqual(prepared['payload']['ratio'],'3:4');self.assertEqual(snapshot['opening_frame_usage'],'opening_reference')
+   self.assertEqual(snapshot['materials'][0]['name'],'robot');self.assertIn('@image2 为robot的',prepared['payload']['content'][0]['text'])
+   self.assertNotIn('data:image',str(snapshot));self.assertTrue(all(x['image_url']['url'].startswith('data:image/') for x in images))
+   self.assertNotIn('planned_materials_not_sent',snapshot);self.assertTrue(any('不保证' in w for w in snapshot['quality_warnings']))
+   self.state['settings']['provider']='minimax'
+   with self.assertRaisesRegex(ValueError,'仅支持 Seedance'):mv.prepare(self.state,self.shot,self.lib)
+   self.state['settings']['provider']='seedance25';(Path(tmp)/'assets'/'4'/Path(frame['url']).name).write_bytes(png(384,512,color=(1,2,3)))
+   with self.assertRaisesRegex(ValueError,'已变化'):mv.prepare(self.state,self.shot,self.lib)
+ def test_opening_reference_requires_approved_materials_and_reapproval(self):
+  import base64,tempfile
+  from test_asset_library import png
+  import video_segments
+  with tempfile.TemporaryDirectory() as tmp:
+   self.lib.root=Path(tmp);self.server.ROOT=Path(tmp);self.state['settings'].update(ratio='3:4',provider='seedance25');self.state['video_segments']=[self.shot]
+   frame=video_segments.operate(self.server,self.state,'add-opening-candidate',{'segment_id':'s','base64':base64.b64encode(png(384,512)).decode()})['candidate']
+   video_segments.operate(self.server,self.state,'approve-opening',{'segment_id':'s','frame_id':frame['id']})
+   self.shot['material_video_approval']={'fingerprint':'old'}
+   video_segments.operate(self.server,self.state,'save-segment',{'segment_id':'s','draft':{'video_input_mode':'opening_reference','opening_frame_id':frame['id']}})
+   self.assertNotIn('material_video_approval',self.shot)
+   self.shot['asset_references']=[]
+   with self.assertRaisesRegex(ValueError,'至少选择'):mv.prepare(self.state,self.shot,self.lib)
  def test_accepted_first_video_voice_reference_is_sent_and_bound(self):
   import tempfile,hashlib,wave
   with tempfile.TemporaryDirectory() as tmp:

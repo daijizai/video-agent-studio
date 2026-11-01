@@ -31,6 +31,8 @@ def init():
         c.execute('CREATE TABLE IF NOT EXISTS revisions (id INTEGER PRIMARY KEY, created TEXT DEFAULT CURRENT_TIMESTAMP, body TEXT, project_id INTEGER DEFAULT 1)')
         if 'project_id' not in [r[1] for r in c.execute('PRAGMA table_info(revisions)')]:c.execute('ALTER TABLE revisions ADD COLUMN project_id INTEGER DEFAULT 1')
         c.execute('CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, current_project INTEGER)')
+        import project_steps
+        project_steps.install(c)
         c.execute('INSERT OR IGNORE INTO workspace VALUES (1,1)')
         if not c.execute('SELECT 1 FROM state').fetchone():
             s={'title':'雾港来信','episode':'EP 01 · 消失的第七分钟','demo':True,'target_duration':30,'budget':120,'script':'雨夜，旧港口的钟楼突然停在 23:53。\n\n林雾收到一封来自七分钟后的语音。电话里，是她自己的声音：不要登上最后一班渡轮。\n\n陈渡在码头等她。他手中的船票，印着明天的日期。','continuity':'林雾始终佩戴银色旧手表；陈渡不知道语音的来源。港口时间停在 23:53。','characters':[{'id':'lin','name':'林雾','role':'主角 / 调查记者','version':1,'notes':'28 岁，黑色齐肩短发，灰色风衣，左腕银色旧手表。冷静、敏锐，右眉有细小伤疤。','color':'#729c9b'},{'id':'chen','name':'陈渡','role':'主角 / 渡轮驾驶员','version':1,'notes':'32 岁，深蓝工作夹克，短发，左手旧烧伤。说话克制，始终随身携带黄铜钥匙。','color':'#ac9071'}],'shots':[],'tasks':[],'settings':{'comfy_url':'','workflow':'','provider':'seedance25','resolution':'720p','audio':False,'image_model':image_provider.DEFAULT_IMAGE_MODEL},'events':['已载入示例策划内容；没有生成媒体或产生费用。']}
@@ -179,6 +181,11 @@ class Handler(SimpleHTTPRequestHandler):
             return io.BytesIO(content)
         return super().send_head()
     def reply(self,data,status=200):
+        if self.command=='POST' and getattr(self,'_steps_project_id',None):
+            try:
+                import project_steps
+                with db() as c:project_steps.add_request(c,self._steps_project_id,urllib.parse.urlsplit(self.path).path,status)
+            except sqlite3.Error:pass  # State changes remain recorded transactionally by the database trigger.
         b=json.dumps(secret_store.redact(data),ensure_ascii=False).encode(); self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
     def serve_media(self,head=False):
         if not re.fullmatch(r'/media/[0-9]+/[A-Za-z0-9_-]+\.(png|mp4|webm)',self.path):return self.reply({'error':'非法媒体路径'},400)
@@ -302,6 +309,13 @@ class Handler(SimpleHTTPRequestHandler):
             return self.reply([{k:v for k,v in entry.items() if k not in ('last_execution_status','execution_evidence')} for entry in providers.config_status()])
         if self.path=='/api/providers':return self.reply(providers.config_status(read()))
         if self.path=='/api/export':return self.reply(read())
+        if urllib.parse.urlsplit(self.path).path=='/api/project-steps':
+            try:
+                import project_steps
+                query=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                before=int(query['before'][0]) if 'before' in query else None
+                with db() as c:return self.reply(project_steps.list_steps(c,current_project(),before))
+            except (ValueError,KeyError):return self.reply({'error':'记录查询参数无效'},400)
         if self.path=='/api/revisions':
             with db() as c:return self.reply([dict(r) for r in c.execute('SELECT id,created,body FROM revisions WHERE project_id=? ORDER BY id DESC LIMIT 30',(current_project(),))])
         return super().do_GET()
@@ -360,6 +374,7 @@ class Handler(SimpleHTTPRequestHandler):
             if n<0 or n>(28*1024*1024 if self.path=='/api/comfy/mask' else 17*1024*1024 if self.path in ('/api/assets/upload','/api/assets/style','/api/material-video/add-opening-candidate') else 2000000):raise ValueError('请求过大')
             p=json.loads(self.rfile.read(n) or b'{}')
             if not isinstance(p,dict):raise ValueError('请求须为对象')
+            self._steps_project_id=p.get('project_id') if type(p.get('project_id')) is int else current_project()
             if self.path=='/api/workspace/credentials':
                 with LOCK:
                     name=providers.CATALOG.get(p.get('provider'),{}).get('key_env')
@@ -404,6 +419,10 @@ class Handler(SimpleHTTPRequestHandler):
                     import voice_assets
                     voice_assets.operate(s,ROOT,action.rsplit('/',1)[-1],p)
                     save(s);return self.reply(read())
+                if action=='/api/project-steps/note':
+                    import project_steps
+                    with db() as c:project_steps.add_note(c,s['project_id'],secret_store.redact(p.get('note','')))
+                    return self.reply({'saved':True})
                 if action.startswith('/api/operations/'):
                     import operations,sys
                     return self.reply(operations.operate(sys.modules[__name__],s,action.rsplit('/',1)[-1],p))

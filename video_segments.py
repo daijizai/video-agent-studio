@@ -144,8 +144,9 @@ def operate(server,state,action,p):
             segment[key]=update[key]
     if 'video_input_mode' in update:
         mode=update['video_input_mode']
-        if mode not in ('references','first_frame'):raise ValueError('视频输入方式无效')
-        if mode=='first_frame':
+        if mode not in ('references','first_frame','opening_reference'):raise ValueError('视频输入方式无效')
+        if mode=='opening_reference' and state.get('settings',{}).get('provider','seedance25')!='seedance25':raise ValueError('开场画面加素材参考目前仅支持 Seedance 2.5')
+        if mode in ('first_frame','opening_reference'):
             frame_id=update.get('opening_frame_id') or segment.get('opening_frame_id')
             read_opening(server.ROOT,state,segment,frame_id)
             segment['opening_frame_id']=frame_id
@@ -167,15 +168,25 @@ def operate(server,state,action,p):
     if 'reference_asset_ids' in update:
         ids=update['reference_asset_ids']
         if not isinstance(ids,list) or len(ids)>9 or len(ids)!=len(set(ids)):raise ValueError('素材选择无效或超限')
+        views_by_asset=update.get('reference_views_by_asset',{})
+        if not isinstance(views_by_asset,dict) or any(k not in ids for k in views_by_asset):raise ValueError('素材视图选择无效')
         refs=[]
         for aid in ids:
             asset=next((a for a in asset_library.assets(state) if a['id']==aid),None)
             if not asset or not asset.get('adopted_version'):raise ValueError('只能选择当前项目已采用素材')
             version=asset_library._version(asset,asset['adopted_version']);asset_templates.verify_skill_source(server.ROOT,version['design_profile'],asset['kind'])
-            tag={'character':'body_front','object':'main','scene':'scene_main','scale':'scale_main'}.get(asset['kind']);view=next((v for v in version['views'] if v['tag']==tag),None)
-            if not view:raise ValueError('所选素材缺少所需的正面或场景主图')
-            server.material_service()._checked_view(state['project_id'],view)
-            entry={'asset_id':aid,'kind':asset['kind'],'version':version['version'],'name':version['name'],'variant':version.get('variant',''),'views':[copy.deepcopy(view)],'production_review':asset_templates.review_record(state,asset,version)}
+            tag={'character':'body_front','object':'main','scene':'scene_main','scale':'scale_main'}.get(asset['kind']);default=next((v for v in version['views'] if v['tag']==tag),None)
+            if not default:raise ValueError('所选素材缺少所需的正面或场景主图')
+            selected_ids=views_by_asset.get(aid)
+            if selected_ids is None:views=[default]
+            else:
+                if asset['kind']!='character' or not isinstance(selected_ids,list) or not selected_ids or len(selected_ids)>3 or any(not isinstance(x,str) for x in selected_ids) or len(selected_ids)!=len(set(selected_ids)):raise ValueError('请选择角色的有效视图')
+                views=[next((v for v in version['views'] if v['id']==vid and v['tag'] in ('body_front','body_side','body_back')),None) for vid in selected_ids]
+                if any(v is None for v in views):raise ValueError('角色视图不属于当前已采用版本')
+                review=asset_templates.review_status(state,asset,version)
+                if any(v['tag'] not in review['ref_eligible_tags'] for v in views):raise ValueError('角色视图尚未按当前规范审阅')
+            for view in views:server.material_service()._checked_view(state['project_id'],view)
+            entry={'asset_id':aid,'kind':asset['kind'],'version':version['version'],'name':version['name'],'variant':version.get('variant',''),'views':copy.deepcopy(views),'production_review':asset_templates.review_record(state,asset,version)}
             if asset['kind']=='scale':entry['related_versions']=copy.deepcopy(version.get('related_versions',[]))
             refs.append(entry)
         chosen={r['asset_id']:r['version'] for r in refs if r['kind']=='character'}
