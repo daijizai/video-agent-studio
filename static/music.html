@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>音乐素材 · Frame Studio</title><link rel="stylesheet" href="workspace-home.css"><link rel="stylesheet" href="music.css"></head>
+<body><header class="top"><a class="brand" href="/workspace.html"><span>F</span> FRAME STUDIO</a><a href="/workspace.html">← 工作空间</a></header>
+<main class="music-main"><div class="music-heading"><div><p class="eyebrow">MUSIC LIBRARY</p><h1>音乐素材</h1><p class="intro">搜索、试听和下载，寻找适合故事的声音。</p></div><div class="music-actions"><button id="music-start" class="primary">启动音乐服务</button><a id="music-open" href="http://127.0.0.1:8767/music" target="_blank" rel="noopener" hidden>在独立窗口打开 ↗</a></div></div>
+<p id="music-status" role="status" aria-live="polite">正在检查本地音乐服务…</p><p id="music-error" role="alert"></p>
+<p class="music-note">由 <a href="https://github.com/guohuiyuan/go-music-dl" target="_blank" rel="noopener">go-music-dl</a> 提供搜索、试听和下载。下载文件保存在本机；用于发布的音乐需自行确认授权。歌曲不会自动加入项目或合成视频。</p>
+<iframe id="music-frame" title="音乐搜索、试听与下载" hidden referrerpolicy="no-referrer"></iframe></main><script src="music.js"></script></body></html>

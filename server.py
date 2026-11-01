@@ -260,6 +260,9 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.startswith('/media/'):return self.serve_media(head=True)
         return super().do_HEAD()
     def do_GET(self):
+        if self.path=='/api/music/status':
+            import music_service
+            return self.reply(music_service.status())
         if self.path=='/api/workspace/creative-resources':
             try:
                 import creative_resources
@@ -375,6 +378,9 @@ class Handler(SimpleHTTPRequestHandler):
             p=json.loads(self.rfile.read(n) or b'{}')
             if not isinstance(p,dict):raise ValueError('请求须为对象')
             self._steps_project_id=p.get('project_id') if type(p.get('project_id')) is int else current_project()
+            if self.path=='/api/music/start':
+                import music_service
+                return self.reply(music_service.start())
             if self.path=='/api/workspace/credentials':
                 with LOCK:
                     name=providers.CATALOG.get(p.get('provider'),{}).get('key_env')
