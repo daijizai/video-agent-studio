@@ -4,7 +4,7 @@
 <rect x="2" y="2" width="956" height="436" rx="18" fill="#fffdf6" stroke="#ded7c7"/>
 <g font-family="Comic Sans MS, Chalkboard SE, cursive, sans-serif" fill="#343a40">
 <text x="40" y="48" font-size="25" font-weight="bold">代码一点点，故事一帧帧。</text>
-<text x="40" y="77" font-size="14" fill="#73716b">CODE GROWTH / 2026-11-01 / 10,411 non-empty lines</text>
+<text x="40" y="77" font-size="14" fill="#73716b">CODE GROWTH / 2026-11-01 / 10,783 non-empty lines</text>
 <path d="M 100 338.0 Q 500 339.0 900 338.0" fill="none" stroke="#e5e0d4" stroke-dasharray="4 7"/>
 <text x="86" y="343.0" text-anchor="end" font-size="13">0</text>
 <path d="M 100 278.5 Q 500 279.5 900 278.5" fill="none" stroke="#e5e0d4" stroke-dasharray="4 7"/>
@@ -16,14 +16,14 @@
 <path d="M 100 100.0 Q 500 101.0 900 100.0" fill="none" stroke="#e5e0d4" stroke-dasharray="4 7"/>
 <text x="86" y="105.0" text-anchor="end" font-size="13">15,000</text>
 <path d="M 99 95 Q 102 220 100 339 Q 500 337 912 339" fill="none" stroke="#45443e" stroke-width="2" stroke-linecap="round"/>
-<path d="M 100.00 306.92 L 300.00 222.16 L 500.00 219.75 L 700.00 190.04 L 900.00 172.81 L 900.00 338 L 100.00 338 Z" fill="#bce2d5" opacity=".35"/>
-<path d="M 100.00 306.92 L 300.00 222.16 L 500.00 219.75 L 700.00 190.04 L 900.00 172.81" fill="none" stroke="#238778" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
-<path d="M 100.00 308.52 L 300.18 221.49 L 499.64 218.70 L 700.54 191.58 L 899.30 172.58" fill="none" stroke="#238778" stroke-width="1" opacity=".5"/>
+<path d="M 100.00 306.92 L 300.00 222.16 L 500.00 219.75 L 700.00 190.04 L 900.00 166.91 L 900.00 338 L 100.00 338 Z" fill="#bce2d5" opacity=".35"/>
+<path d="M 100.00 306.92 L 300.00 222.16 L 500.00 219.75 L 700.00 190.04 L 900.00 166.91" fill="none" stroke="#238778" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 100.00 308.52 L 300.18 221.49 L 499.64 218.70 L 700.54 191.58 L 899.30 166.68" fill="none" stroke="#238778" stroke-width="1" opacity=".5"/>
 <circle cx="100.00" cy="306.92" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-28: 1,959 lines</title></circle>
 <circle cx="300.00" cy="222.16" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-29: 7,301 lines</title></circle>
 <circle cx="500.00" cy="219.75" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-30: 7,453 lines</title></circle>
 <circle cx="700.00" cy="190.04" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-31: 9,325 lines</title></circle>
-<circle cx="900.00" cy="172.81" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-11-01: 10,411 lines</title></circle>
+<circle cx="900.00" cy="166.91" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-11-01: 10,783 lines</title></circle>
 <text x="100.00" y="366" text-anchor="middle" font-size="13">2026-10-28</text>
 <text x="300.00" y="366" text-anchor="middle" font-size="13">2026-10-29</text>
 <text x="500.00" y="366" text-anchor="middle" font-size="13">2026-10-30</text>
