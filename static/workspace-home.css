@@ -24,3 +24,7 @@ main{max-width:1600px;padding:28px 32px 40px;min-height:calc(100dvh - 125px)}
 
 /* Compact utility navigation leaves the project grid as the main content. */
 .workspace-nav{display:flex;align-items:center;gap:18px}.resource-nav-link{display:inline-flex;align-items:center;gap:9px;min-height:40px;padding:7px 11px;border:1px solid #354137;border-radius:8px;background:#1b2420;color:#dbe9c3;font-size:13px;font-weight:600;transition:background .15s,border-color .15s}.resource-nav-link svg{color:#b7cb91;flex:none}.resource-nav-arrow{font-size:15px;color:#a4b692;margin-left:2px}.resource-nav-link:hover{background:#273329;border-color:#849a70}.workspace-nav-divider{width:1px;height:22px;background:var(--line)}@media(max-width:620px){.workspace-nav{gap:8px}.resource-nav-link{padding:6px 9px}.workspace-nav-divider{display:none}}@media(prefers-reduced-motion:reduce){.resource-nav-link{transition:none}}
+
+.project .project-cover{display:flex;height:auto;aspect-ratio:16/9;position:relative}.project-cover.has-video{padding:0;background:#080a0a}.project-cover video{width:100%;height:100%;object-fit:contain;position:absolute;inset:0;pointer-events:none}
+
+.project[role="button"]{cursor:pointer}.project[role="button"]:focus-visible{outline:3px solid var(--accent);outline-offset:4px}.project[aria-busy="true"]{opacity:.65;cursor:wait}

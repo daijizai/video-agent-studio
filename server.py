@@ -80,7 +80,9 @@ def read(project_id=None):
         c.execute('BEGIN')
         row=c.execute('SELECT body FROM state WHERE id=?',(project_id,)).fetchone()
         if not row:raise ValueError('项目不存在')
-        s=json.loads(row[0]);s.setdefault('image_tasks',[]);s.setdefault('target_duration',30 if s.get('demo') else 120);s['project_id']=project_id;s['revision']=c.execute('SELECT COALESCE(MAX(id),0) FROM revisions WHERE project_id=?',(project_id,)).fetchone()[0];s['workflow']=workflow_state.derive(s);return s
+        s=json.loads(row[0]);
+        if s.get('_deleted'):raise ValueError('项目已删除')
+        s.setdefault('image_tasks',[]);s.setdefault('target_duration',30 if s.get('demo') else 120);s['project_id']=project_id;s['revision']=c.execute('SELECT COALESCE(MAX(id),0) FROM revisions WHERE project_id=?',(project_id,)).fetchone()[0];s['workflow']=workflow_state.derive(s);return s
 def save(s):
     project_id=s.get('project_id',current_project())
     with LOCK, db() as c:
@@ -96,8 +98,24 @@ def project_list():
     with db() as c:
         items=[]
         for r in c.execute('SELECT id,body FROM state ORDER BY id'):
-            s=json.loads(r['body']);items.append({'id':r['id'],'title':s['title'],'demo':s.get('demo',False)})
+            s=json.loads(r['body']);
+            if s.get('_deleted'):continue
+            candidates=[(s.get('final_video') or {}).get('local_url')]+[t.get('local_video') for t in reversed(s.get('tasks',[])) if t.get('status')=='completed']
+            cover=next((u for u in candidates if isinstance(u,str) and re.fullmatch(r'/media/'+str(r['id'])+r'/[A-Za-z0-9_-]+\.(mp4|webm)',u)),None)
+            items.append({'id':r['id'],'title':s['title'],'demo':s.get('demo',False),'cover_video':cover})
         return {'current_project':current_project(),'projects':items}
+def delete_project(project_id, title):
+    with LOCK:
+        s=read(int(project_id))
+        if title!=s['title']:raise ValueError('项目名称不匹配，请刷新后重试')
+        remaining=[p for p in project_list()['projects'] if p['id']!=s['project_id']]
+        replacement=remaining[0]['id'] if remaining else create_project('未命名项目')['project_id']
+        s['_deleted']=True
+        with db() as c:
+            c.execute('UPDATE state SET body=? WHERE id=?',(json.dumps(s,ensure_ascii=False),s['project_id']))
+            c.execute('UPDATE workspace SET current_project=? WHERE id=1 AND current_project=?',(replacement,s['project_id']))
+        return read()
+
 def create_project(title):
     title=str(title).strip()
     if not title or len(title)>80:raise ValueError('项目名称须为 1–80 个字符')
@@ -366,6 +384,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if is_repair:return self.handle_edit(p,action='poll',state_response=True)
             with LOCK:
                 action=self.path
+                if action=='/api/projects/delete':return self.reply(delete_project(p.get('project_id'),p.get('title')))
                 if action=='/api/projects/new':return self.reply(create_project(p.get('title','')))
                 if action=='/api/projects/switch':
                     project_id=int(p['project_id']);result=read(project_id)
@@ -385,6 +404,9 @@ class Handler(SimpleHTTPRequestHandler):
                     import voice_assets
                     voice_assets.operate(s,ROOT,action.rsplit('/',1)[-1],p)
                     save(s);return self.reply(read())
+                if action.startswith('/api/operations/'):
+                    import operations,sys
+                    return self.reply(operations.operate(sys.modules[__name__],s,action.rsplit('/',1)[-1],p))
                 if action.startswith('/api/material-video/'):
                     import material_video,sys
                     return self.reply(material_video.operate(sys.modules[__name__],s,action.rsplit('/',1)[-1],p))
