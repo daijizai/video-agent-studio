@@ -16,6 +16,17 @@ class MaterialVideoTests(unittest.TestCase):
   self.assertEqual(prepared['payload']['content'][1]['role'],'reference_image')
   self.assertTrue(prepared['payload']['content'][1]['image_url']['url'].startswith('data:image/png;base64,'))
   self.assertNotIn('old.invalid',str(prepared));self.assertNotIn('data:image',str(snapshot))
+ def test_depth_motion_is_sent_and_redacted_in_snapshot(self):
+  self.shot['use_depth_reference']=True
+  self.lib.root=Path('/tmp')
+  depth={'url':'https://safe.volcvideo.com/secret','sha256':'f'*64,'duration':10,'name':'depth','task_id':'task'}
+  with patch('depth_reference.load',return_value=depth):
+   prepared,snapshot=mv.prepare(self.state,self.shot,self.lib)
+  videos=[v for v in prepared['payload']['content'] if v['type']=='video_url']
+  self.assertEqual(videos[0]['role'],'reference_video');self.assertEqual(videos[0]['video_url']['url'],depth['url'])
+  self.assertNotIn(depth['url'],str(snapshot));self.assertEqual(snapshot['motion_reference']['sha256'],'f'*64)
+  self.assertEqual(prepared['payload']['omni_reference_task_type'],'reference')
+  self.assertGreater(prepared['estimated_cny'],0)
  def test_shared_shot_language_is_sent_and_bound_to_snapshot(self):
   self.shot['shot_language']=[{'id':'movement-orbit','kind':'movement','name':'环绕','instruction':'摄像机沿弧线移动','catalog_version':1}]
   prepared,snapshot=mv.prepare(self.state,self.shot,self.lib)
@@ -68,8 +79,11 @@ class MaterialVideoTests(unittest.TestCase):
    self.assertEqual(snapshot['materials'][0]['name'],'robot');self.assertIn('@image2 为robot的',prepared['payload']['content'][0]['text'])
    self.assertNotIn('data:image',str(snapshot));self.assertTrue(all(x['image_url']['url'].startswith('data:image/') for x in images))
    self.assertNotIn('planned_materials_not_sent',snapshot);self.assertTrue(any('不保证' in w for w in snapshot['quality_warnings']))
-   self.state['settings']['provider']='minimax'
-   with self.assertRaisesRegex(ValueError,'仅支持 Seedance'):mv.prepare(self.state,self.shot,self.lib)
+   self.state['settings'].update(provider='minimax',minimax_model='MiniMax-H3',resolution='768P')
+   prepared,snapshot=mv.prepare(self.state,self.shot,self.lib)
+   images=[x for x in prepared['payload']['content'] if x['type']=='image_url']
+   self.assertEqual([x['role'] for x in images],['reference_image','reference_image'])
+   self.assertEqual(snapshot['opening_frame_usage'],'opening_reference');self.assertEqual(prepared['payload']['ratio'],'3:4')
    self.state['settings']['provider']='seedance25';(Path(tmp)/'assets'/'4'/Path(frame['url']).name).write_bytes(png(384,512,color=(1,2,3)))
    with self.assertRaisesRegex(ValueError,'已变化'):mv.prepare(self.state,self.shot,self.lib)
  def test_opening_reference_requires_approved_materials_and_reapproval(self):

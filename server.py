@@ -415,6 +415,12 @@ class Handler(SimpleHTTPRequestHandler):
                 if action in ('/api/submit','/api/image/submit','/api/provider/submit','/api/sequence/submit') and generation_scope.is_paused(s['project_id'],DATA/'studio.db'):raise ValueError('用户已暂停本项目新生成；预算和历史保留，不能提交新媒体')
                 if 'project_id' in p and int(p['project_id'])!=s['project_id']:raise ValueError('当前项目已切换，请刷新页面后再保存')
                 if 'revision' in p and int(p['revision'])!=s['revision']:raise ValueError('项目已被其他窗口或CLI修改，请刷新后重试')
+                if action=='/api/timeline/start':
+                    import timeline_export
+                    return self.reply(timeline_export.start(s,ROOT,p.get('clips')))
+                if action=='/api/timeline/status':
+                    import timeline_export
+                    return self.reply(timeline_export.status(s['project_id'],p.get('job_id')))
                 if action=='/api/video-speed/start':
                     import video_speed_export
                     return self.reply(video_speed_export.start(s,ROOT,p.get('rate'),p.get('source_sha256'),p.get('source_url')))

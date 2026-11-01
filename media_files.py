@@ -28,7 +28,7 @@ def cache_video(root,project_id,task_id,url):
 
 def probe_video(path):
  if not shutil.which('ffprobe'):return {'verified':False,'note':'FFprobe未安装'}
- r=subprocess.run(['ffprobe','-v','error','-show_entries','format=duration:stream=codec_type,codec_name,width,height','-of','json',str(path)],capture_output=True,text=True,timeout=15)
+ r=subprocess.run(['ffprobe','-v','error','-show_entries','format=duration:stream=codec_type,codec_name,width,height,pix_fmt,avg_frame_rate,r_frame_rate,color_range,color_space,color_transfer,color_primaries','-of','json',str(path)],capture_output=True,text=True,timeout=15)
  if r.returncode:return {'verified':False,'note':'媒体元数据读取失败'}
  data=json.loads(r.stdout);video=next((s for s in data.get('streams',[]) if s.get('codec_type')=='video'),{})
  return {'verified':True,'duration':float(data.get('format',{}).get('duration',0)),'video':video,'has_audio':any(s.get('codec_type')=='audio' for s in data.get('streams',[]))}

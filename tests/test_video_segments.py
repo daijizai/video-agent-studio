@@ -6,6 +6,12 @@ import video_segments as vs
 class SegmentTests(unittest.TestCase):
  def setUp(self):
   self.s={'shots':[{'id':'s','name':'first','duration':16,'material_video_prompt':'opening','asset_references':[]}],'tasks':[{'id':'t','shot_id':'s','name':'old test','request':{'duration':6,'content':[{'type':'text','text':'original actual prompt'}]}}]};self.server=Mock()
+ def test_delete_empty_segment_preserves_history(self):
+  self.s['video_segments']=[{'id':'empty','legacy_task_ids':[]},{'id':'used','legacy_task_ids':[]}]
+  self.s['tasks'].append({'id':'new','segment_id':'used'})
+  with self.assertRaisesRegex(ValueError,'不能删除'):vs.operate(self.server,self.s,'delete-empty-segment',{'segment_id':'used'})
+  result=vs.operate(self.server,self.s,'delete-empty-segment',{'segment_id':'empty'})
+  self.assertTrue(result['deleted']);self.assertEqual([x['id'] for x in self.s['video_segments']],['used'])
  def test_opening_candidate_is_stored_without_generation_or_approval(self):
   import tempfile,base64,hashlib
   from test_asset_library import png

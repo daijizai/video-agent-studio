@@ -9,7 +9,7 @@ def prepare(state,shot,library):
     is_minimax=state.get('settings',{}).get('provider')=='minimax'
     mode=shot.get('video_input_mode','references')
     if mode not in ('references','first_frame','opening_reference'):raise ValueError('视频输入方式无效')
-    if mode=='opening_reference' and state.get('settings',{}).get('provider','seedance25')!='seedance25':raise ValueError('开场画面加素材参考目前仅支持 Seedance 2.5')
+    if mode=='opening_reference' and state.get('settings',{}).get('provider','seedance25') not in ('seedance25','minimax'):raise ValueError('开场画面加素材参考仅支持 Seedance 2.5 和 MiniMax H3')
     planned_refs=shot.get('asset_references') or []
     opening=None;opening_data=None
     if mode in ('first_frame','opening_reference'):
@@ -155,6 +155,13 @@ def prepare(state,shot,library):
         prompt+='\n视频%d仅作为画质参考，借鉴清晰度、光线与材质，不复制剧情、动作或构图。'%(2 if parent_snapshot else 1)
     if len(prompt)>500 and not is_minimax:
         quality_warnings.append('本次Prompt超过500字；方舟建议精简中文提示词，但不会自动删除内容。')
+    depth=None
+    if shot.get('use_depth_reference'):
+        if is_minimax or mode=='first_frame' or parent_snapshot or (baseline and baseline.get('status')=='sent'):
+            raise ValueError('深度参考需使用 Seedance 多素材参考模式，且不能同时使用前置视频或画质视频')
+        import depth_reference
+        depth=depth_reference.load(library.root,state['project_id'])
+        prompt+='\n视频1为深度运动参考，仅参考运动节奏和空间关系。角色身份、外观与服装依据图片，不复制参考视频中的人物。'
     spec={'duration':shot['duration'],'prompt':prompt,'reference_images':list(data)}
     prepared=providers.Provider('minimax').prepare(spec,config) if is_minimax else ark_provider.prepare_video(spec,config)
     if mode=='first_frame':
@@ -183,6 +190,14 @@ def prepare(state,shot,library):
             tokens=Decimal(width*height*24*(math.ceil(baseline['duration'])+int(shot['duration'])+1))/1024
             rate=Decimal('0.077' if config.get('resolution')=='1080p' else '0.07')
             prepared['estimated_cny']=float((tokens*rate/1000).quantize(Decimal('.01'),rounding=ROUND_UP))
+    if depth:
+        prepared['payload']['content'].append({'type':'video_url','video_url':{'url':'depth:sha256:'+depth['sha256']},'role':'reference_video'})
+        prepared['payload']['omni_reference_task_type']='reference'
+        width,height=prepared['estimate_basis']['width'],prepared['estimate_basis']['height']
+        tokens=Decimal(width*height*24*(math.ceil(depth['duration'])+int(shot['duration'])+1))/1024
+        rate=Decimal('0.077' if config.get('resolution')=='1080p' else '0.07')
+        prepared['estimated_cny']=float((tokens*rate/1000).quantize(Decimal('.01'),rounding=ROUND_UP))
+        quality_warnings.append('视频1为深度运动参考，云端地址有时效，需核对角色、动作与实际效果。')
     for voice_snapshot in voice_snapshots:
         prepared['payload']['content'].append({'type':'audio_url','audio_url':{'url':'audio:sha256:'+voice_snapshot['sha256']},'role':'reference_audio'})
     if is_minimax:
@@ -197,13 +212,14 @@ def prepare(state,shot,library):
     for item in prepared['payload']['content']:
         if item['type']=='image_url':item['image_url']['url']='data:image/png;base64,'+base64.b64encode(opening_data).decode() if item.get('role')=='first_frame' else data[item['image_url']['url']]
         elif item['type']=='audio_url':item['audio_url']['url']=voice_data[audio_index];audio_index+=1
+        elif item['type']=='video_url' and depth and item['video_url']['url']=='depth:sha256:'+depth['sha256']:item['video_url']['url']=depth['url']
     if len(json.dumps(prepared['payload']).encode())>64*1024*1024:raise ValueError('视频请求超过64MB')
-    snapshot={'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'quality_warnings':quality_warnings,'shot_language':copy.deepcopy(shot_language),**({'opening_frame':opening,'opening_frame_usage':'strict_first_frame' if mode=='first_frame' else 'opening_reference',**({'planned_materials_not_sent':[{'name':r['name'],'version':r['version']} for r in planned_refs]} if mode=='first_frame' else {})} if opening else {}),**({'audio_mode':'provider_default'} if is_minimax else {})}
+    snapshot={'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'motion_reference':({k:depth[k] for k in ('name','sha256','duration','task_id')} if depth else None),'quality_warnings':quality_warnings,'shot_language':copy.deepcopy(shot_language),**({'opening_frame':opening,'opening_frame_usage':'strict_first_frame' if mode=='first_frame' else 'opening_reference',**({'planned_materials_not_sent':[{'name':r['name'],'version':r['version']} for r in planned_refs]} if mode=='first_frame' else {})} if opening else {}),**({'audio_mode':'provider_default'} if is_minimax else {})}
     return prepared,snapshot
 
 def operate(server,state,action,p):
     import video_segments
-    if action in ('init-segments','create-segment','save-segment','accept-segment','reject-candidate','add-opening-candidate','extract-opening-from-video','approve-opening'):return video_segments.operate(server,state,action,p)
+    if action in ('init-segments','create-segment','save-segment','delete-empty-segment','accept-segment','reject-candidate','add-opening-candidate','extract-opening-from-video','approve-opening'):return video_segments.operate(server,state,action,p)
     if action=='set-quality-baseline':
         task=next((t for t in state.get('tasks',[]) if t.get('id')==p.get('task_id')),None)
         _,sha=video_quality.accepted_file(state,server.ROOT,task)

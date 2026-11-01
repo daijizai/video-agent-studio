@@ -59,6 +59,11 @@ def operate(server,state,action,p):
         state['video_segments'].append(segment);server.save(state);return {'segment':segment}
     segment=next((s for s in state['video_segments'] if s['id']==p.get('segment_id')),None)
     if not segment:raise ValueError('视频片段不存在')
+    if action=='delete-empty-segment':
+        if segment.get('legacy_task_ids') or segment.get('opening_frames') or any(t.get('segment_id')==segment['id'] for t in state.get('tasks',[])):
+            raise ValueError('含任务或开场画面的片段不能删除')
+        state['video_segments']=[x for x in state['video_segments'] if x['id']!=segment['id']]
+        server.save(state);return {'deleted':True,'segment_id':segment['id']}
     if action in ('add-opening-candidate','extract-opening-from-video'):
         source={'source':'Codex · OpenAI 生图工具'}
         if action=='extract-opening-from-video':
@@ -138,14 +143,14 @@ def operate(server,state,action,p):
         value=update['duration']
         if type(value) not in (int,float) or int(value)!=value or not 4<=value<=30:raise ValueError('片段时长须为4至30秒整数')
         segment['duration']=int(value)
-    for key in ('material_video_audio','include_in_playlist'):
+    for key in ('material_video_audio','include_in_playlist','use_depth_reference'):
         if key in update:
             if type(update[key]) is not bool:raise ValueError('选项须为布尔值')
             segment[key]=update[key]
     if 'video_input_mode' in update:
         mode=update['video_input_mode']
         if mode not in ('references','first_frame','opening_reference'):raise ValueError('视频输入方式无效')
-        if mode=='opening_reference' and state.get('settings',{}).get('provider','seedance25')!='seedance25':raise ValueError('开场画面加素材参考目前仅支持 Seedance 2.5')
+        if mode=='opening_reference' and state.get('settings',{}).get('provider','seedance25') not in ('seedance25','minimax'):raise ValueError('开场画面加素材参考仅支持 Seedance 2.5 和 MiniMax H3')
         if mode in ('first_frame','opening_reference'):
             frame_id=update.get('opening_frame_id') or segment.get('opening_frame_id')
             read_opening(server.ROOT,state,segment,frame_id)
