@@ -4,7 +4,7 @@
 <rect x="2" y="2" width="956" height="436" rx="18" fill="#fffdf6" stroke="#ded7c7"/>
 <g font-family="Comic Sans MS, Chalkboard SE, cursive, sans-serif" fill="#343a40">
 <text x="40" y="48" font-size="25" font-weight="bold">代码一点点，故事一帧帧。</text>
-<text x="40" y="77" font-size="14" fill="#73716b">CODE GROWTH / 2026-11-01 / 11,150 non-empty lines</text>
+<text x="40" y="77" font-size="14" fill="#73716b">CODE GROWTH / 2026-11-03 / 11,315 non-empty lines</text>
 <path d="M 100 338.0 Q 500 339.0 900 338.0" fill="none" stroke="#e5e0d4" stroke-dasharray="4 7"/>
 <text x="86" y="343.0" text-anchor="end" font-size="13">0</text>
 <path d="M 100 278.5 Q 500 279.5 900 278.5" fill="none" stroke="#e5e0d4" stroke-dasharray="4 7"/>
@@ -16,19 +16,21 @@
 <path d="M 100 100.0 Q 500 101.0 900 100.0" fill="none" stroke="#e5e0d4" stroke-dasharray="4 7"/>
 <text x="86" y="105.0" text-anchor="end" font-size="13">15,000</text>
 <path d="M 99 95 Q 102 220 100 339 Q 500 337 912 339" fill="none" stroke="#45443e" stroke-width="2" stroke-linecap="round"/>
-<path d="M 100.00 306.92 L 300.00 222.16 L 500.00 219.75 L 700.00 190.04 L 900.00 161.09 L 900.00 338 L 100.00 338 Z" fill="#bce2d5" opacity=".35"/>
-<path d="M 100.00 306.92 L 300.00 222.16 L 500.00 219.75 L 700.00 190.04 L 900.00 161.09" fill="none" stroke="#238778" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
-<path d="M 100.00 308.52 L 300.18 221.49 L 499.64 218.70 L 700.54 191.58 L 899.30 160.85" fill="none" stroke="#238778" stroke-width="1" opacity=".5"/>
+<path d="M 100.00 306.92 L 233.33 222.16 L 366.67 219.75 L 500.00 190.04 L 633.33 161.09 L 900.00 158.47 L 900.00 338 L 100.00 338 Z" fill="#bce2d5" opacity=".35"/>
+<path d="M 100.00 306.92 L 233.33 222.16 L 366.67 219.75 L 500.00 190.04 L 633.33 161.09 L 900.00 158.47" fill="none" stroke="#238778" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M 100.00 308.52 L 233.52 221.49 L 366.30 218.70 L 500.54 191.58 L 632.64 160.85 L 900.85 157.13" fill="none" stroke="#238778" stroke-width="1" opacity=".5"/>
 <circle cx="100.00" cy="306.92" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-28: 1,959 lines</title></circle>
-<circle cx="300.00" cy="222.16" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-29: 7,301 lines</title></circle>
-<circle cx="500.00" cy="219.75" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-30: 7,453 lines</title></circle>
-<circle cx="700.00" cy="190.04" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-31: 9,325 lines</title></circle>
-<circle cx="900.00" cy="161.09" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-11-01: 11,150 lines</title></circle>
+<circle cx="233.33" cy="222.16" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-29: 7,301 lines</title></circle>
+<circle cx="366.67" cy="219.75" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-30: 7,453 lines</title></circle>
+<circle cx="500.00" cy="190.04" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-10-31: 9,325 lines</title></circle>
+<circle cx="633.33" cy="161.09" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-11-01: 11,150 lines</title></circle>
+<circle cx="900.00" cy="158.47" r="4" fill="#fffdf6" stroke="#238778" stroke-width="2"><title>2026-11-03: 11,315 lines</title></circle>
 <text x="100.00" y="366" text-anchor="middle" font-size="13">2026-10-28</text>
-<text x="300.00" y="366" text-anchor="middle" font-size="13">2026-10-29</text>
-<text x="500.00" y="366" text-anchor="middle" font-size="13">2026-10-30</text>
-<text x="700.00" y="366" text-anchor="middle" font-size="13">2026-10-31</text>
-<text x="900.00" y="366" text-anchor="middle" font-size="13">2026-11-01</text>
+<text x="233.33" y="366" text-anchor="middle" font-size="13">2026-10-29</text>
+<text x="366.67" y="366" text-anchor="middle" font-size="13">2026-10-30</text>
+<text x="500.00" y="366" text-anchor="middle" font-size="13">2026-10-31</text>
+<text x="633.33" y="366" text-anchor="middle" font-size="13">2026-11-01</text>
+<text x="900.00" y="366" text-anchor="middle" font-size="13">2026-11-03</text>
 <text x="34" y="112" font-size="13">行数</text>
 <text x="900" y="394" text-anchor="end" font-size="13">日期 / UTC+8</text>
 <text x="40" y="414" font-size="12" fill="#73716b">Git history · 源码非空行（含测试与注释） · 自动更新 · 减少也如实记录</text>
