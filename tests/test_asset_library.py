@@ -67,6 +67,45 @@ class AssetFixture(unittest.TestCase):
 
 
 class AssetTests(AssetFixture):
+    def test_unlinked_scale_candidate_is_visible_but_cannot_be_adopted(self):
+        result=self.action('create',kind='scale',name='小黑白与战机',unlinked_draft=True)
+        asset=result['assets'][-1]
+        asset=self.upload(asset,'scale_main')
+        self.assertEqual(len(asset['versions'][-1]['views']),1)
+        with self.assertRaisesRegex(ValueError,'尚未关联'):
+            self.action('adopt',asset_id=asset['id'],version=asset['latest_version'])
+
+    def test_scale_candidate_can_pin_character_and_describe_noncharacter_subject(self):
+        role=self.upload(self.create('character','小黑白'),'portrait')
+        role=self.upload(role,'body_front')
+        self.action('adopt',asset_id=role['id'],version=role['latest_version'])
+        candidate=self.action('create',kind='scale',name='角色和战机',unlinked_draft=True)['assets'][-1]
+        self.action('edit',asset_id=candidate['id'],related_asset_ids=[role['id']],scale_unregistered_subjects=['战机'])
+        current=next(a for a in self.service.catalog(1)['assets'] if a['id']==candidate['id'])
+        self.assertEqual(current['versions'][-1]['scale_unregistered_subjects'],['战机'])
+        current=self.install_profile(current['id'])
+        current=self.upload(current,'scale_main')
+        self.action('adopt',asset_id=current['id'],version=current['latest_version'])
+        current=next(a for a in self.service.catalog(1)['assets'] if a['id']==current['id'])
+        self.assertEqual(current['adopted_version'],current['latest_version'])
+
+    def test_explicit_adopt_rebinds_segment_without_rewriting_task_history(self):
+        from unittest.mock import Mock
+        import video_segments
+        role=self.upload(self.create('character','主角'),'portrait');role=self.upload(role,'body_front')
+        self.action('adopt',asset_id=role['id'],version=role['latest_version'])
+        state=self.state();state['video_segments']=[{'id':'seg','name':'镜头','duration':6,'material_video_prompt':'动作','asset_references':[],'draft_revision':1}]
+        host=Mock();host.ROOT=self.root;host.material_service.return_value=self.service
+        video_segments.operate(host,state,'save-segment',{'segment_id':'seg','draft':{'reference_asset_ids':[role['id']]}})
+        old=copy.deepcopy(state['video_segments'][0]['asset_references']);state['video_segments'][0]['material_video_approval']={'fingerprint':'old'};state['tasks']=[{'id':'historical','material_snapshot':{'materials':copy.deepcopy(old)}}]
+        with self.service._connect() as con:con.execute('UPDATE state SET body=? WHERE id=1',(json.dumps(state,ensure_ascii=False),))
+        updated=self.upload(role,'body_front',png(color=(30,40,50)))
+        self.action('adopt',asset_id=role['id'],version=updated['latest_version'],replace_segment_bindings=True)
+        state=self.state();seg=state['video_segments'][0]
+        self.assertEqual(seg['asset_references'][0]['version'],updated['latest_version'])
+        self.assertNotIn('material_video_approval',seg)
+        self.assertEqual(state['tasks'][0]['material_snapshot']['materials'],old)
+
     def test_scale_reference_pins_roles_and_is_never_a_first_frame(self):
         from unittest.mock import Mock
         import video_segments,material_video

@@ -207,6 +207,21 @@ def prepare(state,shot,library):
         if any(not 2<=float(x['duration'])<=15 for x in voice_snapshots):raise ValueError('MiniMax每段声音参考须为2至15秒')
         prepared=minimax_provider.estimate(prepared['payload'],sum(float(x['duration']) for x in video_refs),sum(float(x['duration']) for x in voice_snapshots))
         quality_warnings.append('MiniMax H3未提供独立音频开关，本次不发送generate_audio参数；声音结果需生成后审阅。')
+    # Project policy is checked against the assembled request, not the prompt.
+    brief=state.get('project_brief') or {}
+    if isinstance(brief,dict) and brief.get('forbid_reference_video') is True:
+        if any(item.get('type')=='video_url' for item in prepared['payload']['content']):
+            raise ValueError('当前项目禁止向模型发送参考视频，请移除前置、画质或动作视频后重试')
+    requirements=shot.get('production_requirements')
+    if requirements is not None:
+        if not isinstance(requirements,dict):raise ValueError('镜头制作要求格式无效')
+        subjects=requirements.get('visible_subjects')
+        if not isinstance(subjects,list) or not subjects or any(not isinstance(x,str) or not x.strip() for x in subjects):raise ValueError('请记录画面中的可见主体')
+        if len(set(subjects))!=len(subjects):raise ValueError('画面主体不能重复')
+        if len(subjects)>=2:
+            scale_ids=requirements.get('approved_scale_asset_ids') or []
+            bound={r['asset_id'] for r in refs if r.get('kind')=='scale'}
+            if not scale_ids or not set(scale_ids).issubset(bound):raise ValueError('多物体场景需要绑定已确认的比例参考图')
     manifest=copy.deepcopy(prepared['payload'])
     audio_index=0
     for item in prepared['payload']['content']:
@@ -214,7 +229,7 @@ def prepare(state,shot,library):
         elif item['type']=='audio_url':item['audio_url']['url']=voice_data[audio_index];audio_index+=1
         elif item['type']=='video_url' and depth and item['video_url']['url']=='depth:sha256:'+depth['sha256']:item['video_url']['url']=depth['url']
     if len(json.dumps(prepared['payload']).encode())>64*1024*1024:raise ValueError('视频请求超过64MB')
-    snapshot={'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'motion_reference':({k:depth[k] for k in ('name','sha256','duration','task_id')} if depth else None),'quality_warnings':quality_warnings,'shot_language':copy.deepcopy(shot_language),**({'opening_frame':opening,'opening_frame_usage':'strict_first_frame' if mode=='first_frame' else 'opening_reference',**({'planned_materials_not_sent':[{'name':r['name'],'version':r['version']} for r in planned_refs]} if mode=='first_frame' else {})} if opening else {}),**({'audio_mode':'provider_default'} if is_minimax else {})}
+    snapshot={'production_requirements':copy.deepcopy(requirements),'project_video_input_forbidden':bool(isinstance(brief,dict) and brief.get('forbid_reference_video')),'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'motion_reference':({k:depth[k] for k in ('name','sha256','duration','task_id')} if depth else None),'quality_warnings':quality_warnings,'shot_language':copy.deepcopy(shot_language),**({'opening_frame':opening,'opening_frame_usage':'strict_first_frame' if mode=='first_frame' else 'opening_reference',**({'planned_materials_not_sent':[{'name':r['name'],'version':r['version']} for r in planned_refs]} if mode=='first_frame' else {})} if opening else {}),**({'audio_mode':'provider_default'} if is_minimax else {})}
     return prepared,snapshot
 
 def operate(server,state,action,p):

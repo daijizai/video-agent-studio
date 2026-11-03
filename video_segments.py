@@ -147,6 +147,13 @@ def operate(server,state,action,p):
         if key in update:
             if type(update[key]) is not bool:raise ValueError('选项须为布尔值')
             segment[key]=update[key]
+    if 'production_requirements' in update:
+        requirements=update['production_requirements']
+        if not isinstance(requirements,dict):raise ValueError('镜头制作要求格式无效')
+        subjects=requirements.get('visible_subjects');scale_ids=requirements.get('approved_scale_asset_ids',[])
+        if not isinstance(subjects,list) or not subjects or len(subjects)>30 or any(not isinstance(x,str) or not x.strip() or len(x)>80 for x in subjects) or len(set(subjects))!=len(subjects):raise ValueError('可见主体清单无效')
+        if not isinstance(scale_ids,list) or len(scale_ids)>9 or any(not isinstance(x,str) for x in scale_ids):raise ValueError('比例素材清单无效')
+        segment['production_requirements']={'visible_subjects':subjects,'approved_scale_asset_ids':scale_ids}
     if 'video_input_mode' in update:
         mode=update['video_input_mode']
         if mode not in ('references','first_frame','opening_reference'):raise ValueError('视频输入方式无效')

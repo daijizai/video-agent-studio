@@ -16,6 +16,15 @@ class MaterialVideoTests(unittest.TestCase):
   self.assertEqual(prepared['payload']['content'][1]['role'],'reference_image')
   self.assertTrue(prepared['payload']['content'][1]['image_url']['url'].startswith('data:image/png;base64,'))
   self.assertNotIn('old.invalid',str(prepared));self.assertNotIn('data:image',str(snapshot))
+ def test_forbidden_video_is_rejected_after_request_assembly(self):
+  self.state['project_brief']={'forbid_reference_video':True};self.shot['use_depth_reference']=True;self.lib.root=Path('/tmp')
+  depth={'url':'https://safe.volcvideo.com/secret','sha256':'f'*64,'duration':10,'name':'depth','task_id':'task'}
+  with patch('depth_reference.load',return_value=depth):
+   with self.assertRaisesRegex(ValueError,'禁止向模型发送参考视频'):mv.prepare(self.state,self.shot,self.lib)
+ def test_multisubject_contract_requires_bound_scale(self):
+  self.shot['production_requirements']={'visible_subjects':['角色','飞机'],'approved_scale_asset_ids':['scale']}
+  with self.assertRaisesRegex(ValueError,'绑定已确认的比例'):mv.prepare(self.state,self.shot,self.lib)
+
  def test_depth_motion_is_sent_and_redacted_in_snapshot(self):
   self.shot['use_depth_reference']=True
   self.lib.root=Path('/tmp')

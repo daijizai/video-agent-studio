@@ -28,3 +28,5 @@ main{max-width:1600px;padding:28px 32px 40px;min-height:calc(100dvh - 125px)}
 .project .project-cover{display:flex;height:auto;aspect-ratio:16/9;position:relative}.project-cover.has-video{padding:0;background:#080a0a}.project-cover video{width:100%;height:100%;object-fit:contain;position:absolute;inset:0;pointer-events:none}
 
 .project[role="button"]{cursor:pointer}.project[role="button"]:focus-visible{outline:3px solid var(--accent);outline-offset:4px}.project[aria-busy="true"]{opacity:.65;cursor:wait}
+
+.project-cover img{width:100%;height:100%;object-fit:contain;position:absolute;inset:0;pointer-events:none}

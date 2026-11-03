@@ -104,7 +104,9 @@ def project_list():
             if s.get('_deleted'):continue
             candidates=[(s.get('final_video') or {}).get('local_url')]+[t.get('local_video') for t in reversed(s.get('tasks',[])) if t.get('status')=='completed']
             cover=next((u for u in candidates if isinstance(u,str) and re.fullmatch(r'/media/'+str(r['id'])+r'/[A-Za-z0-9_-]+\.(mp4|webm)',u)),None)
-            items.append({'id':r['id'],'title':s['title'],'demo':s.get('demo',False),'cover_video':cover})
+            image=(s.get('project_brief') or {}).get('cover_image','') if isinstance(s.get('project_brief'),dict) else ''
+            if not isinstance(image,str) or not re.fullmatch(r'/media/'+str(r['id'])+r'/[A-Za-z0-9_-]+\.png',image) or not (ROOT/'assets'/image.removeprefix('/media/')).is_file():image=''
+            items.append({'id':r['id'],'title':s['title'],'demo':s.get('demo',False),'cover_video':cover,'cover_image':image})
         return {'current_project':current_project(),'projects':items}
 def delete_project(project_id, title):
     with LOCK:
@@ -417,7 +419,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if 'revision' in p and int(p['revision'])!=s['revision']:raise ValueError('项目已被其他窗口或CLI修改，请刷新后重试')
                 if action=='/api/timeline/start':
                     import timeline_export
-                    return self.reply(timeline_export.start(s,ROOT,p.get('clips')))
+                    return self.reply(timeline_export.start(s,ROOT,p.get('clips'),p.get('include_music') is True))
                 if action=='/api/timeline/status':
                     import timeline_export
                     return self.reply(timeline_export.status(s['project_id'],p.get('job_id')))

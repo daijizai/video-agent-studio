@@ -539,7 +539,8 @@ class AssetLibrary:
                 'summary': _text(payload.get('summary', ''), '简要设定'), 'role': _text(payload.get('role', ''), '角色定位', 160),
                 'variant': _text(payload.get('variant', ''), '外观版本说明', 160), 'views': [], 'created_at': _now(), 'origin': 'user_text'}
             version['related_asset_ids'] = self._related(state,payload.get('related_asset_ids',[]))
-            if kind=='scale':version['related_versions']=self._related_versions(state,version['related_asset_ids'])
+            if kind=='scale':
+                version['related_versions']=[] if payload.get('unlinked_draft') is True and not version['related_asset_ids'] else self._related_versions(state,version['related_asset_ids'])
             state.setdefault('material_assets', []).append({'id': uuid.uuid4().hex, 'kind': kind,
                 'latest_version': 1, 'adopted_version': None, 'versions': [version]})
             return
@@ -567,7 +568,9 @@ class AssetLibrary:
                     version[field] = _text(payload[field], field, limit, required)
             if 'related_asset_ids' in payload:
                 version['related_asset_ids']=self._related(state,payload['related_asset_ids'])
-                if asset['kind']=='scale':version['related_versions']=self._related_versions(state,version['related_asset_ids'])
+                if asset['kind']=='scale':
+                    version['scale_unregistered_subjects']=payload.get('scale_unregistered_subjects',[])
+                    version['related_versions']=self._related_versions(state,version['related_asset_ids'],version['scale_unregistered_subjects'])
             if any(version.get(k) != current.get(k) for k in ('name', 'summary', 'role', 'variant','related_asset_ids','related_versions')):
                 if any(version.get(k)!=current.get(k) for k in ('summary','variant')) or (asset['kind']=='scale' and version.get('related_versions')!=current.get('related_versions')):
                     version['views']=[]
@@ -608,6 +611,8 @@ class AssetLibrary:
             if type(number) is not int:
                 raise ValueError('请明确选择采用的版本')
             version = _version(asset, number)
+            if asset['kind']=='scale' and len(version.get('related_versions',[]))<2 and not (version.get('related_versions') and version.get('scale_unregistered_subjects')):
+                raise ValueError('比例候选尚未关联已采用主体，不能在工作台采用')
             asset_templates.verify_skill_source(self.root,version.get('design_profile',{}),asset['kind'])
             for view in version.get('views', []):
                 self._checked_view(state['project_id'], view)
@@ -617,6 +622,19 @@ class AssetLibrary:
             asset.setdefault('production_reviews',[]).append(review)
             asset.setdefault('adoption_history', []).append({'version': number, 'adopted': True, 'at': _now()})
             self._sync_character(state, asset, version)
+            # Explicit replacement changes future segment drafts only; task snapshots remain immutable.
+            if payload.get('replace_segment_bindings') is True:
+                for segment in state.get('video_segments',[]):
+                    for ref in segment.get('asset_references',[]):
+                        if ref.get('asset_id')!=asset['id']:continue
+                        tags=[view.get('tag') for view in ref.get('views',[])]
+                        views=[next((v for v in version.get('views',[]) if v.get('tag')==tag),None) for tag in tags]
+                        if any(v is None for v in views):raise ValueError('新版缺少已绑定视图，无法自动替换')
+                        for view in views:self._checked_view(state['project_id'],view)
+                        ref.update(version=number,name=version['name'],variant=version.get('variant',''),views=copy.deepcopy(views),production_review=copy.deepcopy(review))
+                        if asset['kind']=='scale':ref['related_versions']=copy.deepcopy(version.get('related_versions',[]))
+                        segment['draft_revision']=segment.get('draft_revision',0)+1
+                        segment.pop('material_video_approval',None)
         elif action == 'unadopt':
             if asset.get('adopted_version') is None or type(payload.get('version')) is not int or payload.get('version') != asset.get('adopted_version'):
                 raise ValueError('采用版本已变化，请刷新后重试')
@@ -631,8 +649,9 @@ class AssetLibrary:
             raise ValueError('关联角色须来自当前项目')
         return list(dict.fromkeys(values))
 
-    def _related_versions(self,state,values):
-        if len(values)<2:raise ValueError('比例参考须关联至少两个已采用角色')
+    def _related_versions(self,state,values,unregistered=None):
+        if len(values)<2 and not (len(values)>=1 and isinstance(unregistered,list) and unregistered and all(isinstance(x,str) and x.strip() and len(x)<=80 for x in unregistered)):
+            raise ValueError('比例参考须关联至少两个已采用角色，或关联已采用角色并注明其他主体')
         by_id={a['id']:a for a in assets(state)};result=[]
         for aid in values:
             asset=by_id[aid];version=asset.get('adopted_version')

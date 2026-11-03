@@ -31,4 +31,19 @@ class TimelineExportTest(unittest.TestCase):
    self.assertEqual(original,[(folder/(n+'.mp4')).read_bytes() for n in ('a','b')])
    state['tasks'][1]['review_status']='rejected_quality'
    with self.assertRaises(ValueError):timeline_export.start(state,root,[{'task_id':'b','start':0,'end':1}])
+ def test_pending_clip_exports_with_selected_music(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);folder=root/'assets'/'2';folder.mkdir(parents=True)
+   video=folder/'clip.mp4';music=folder/'sound.mp4'
+   subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i','testsrc2=s=64x64:r=24:d=2','-c:v','libx264','-pix_fmt','yuv420p','-y',str(video)],check=True)
+   subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i','sine=frequency=440:duration=2','-c:a','aac','-y',str(music)],check=True)
+   state={'project_id':2,'tasks':[{'id':'clip','status':'completed','review_status':'pending','local_video':'/media/2/clip.mp4'}],'project_brief':{'timeline_audio':{'url':'/media/2/sound.mp4'}}}
+   job=timeline_export.start(state,root,[{'task_id':'clip','start':.5,'end':1.5}],True)
+   for _ in range(100):
+    result=timeline_export.status(2,job['id'])
+    if result['status']!='running':break
+    time.sleep(.05)
+   self.assertEqual(result['status'],'completed',result)
+   info=media_files.probe_video(folder/Path(result['url']).name)
+   self.assertTrue(info['has_audio']);self.assertAlmostEqual(info['duration'],1,delta=.2)
 if __name__=='__main__':unittest.main()
