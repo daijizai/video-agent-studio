@@ -213,6 +213,12 @@ def prepare(state,shot,library):
         if any(item.get('type')=='video_url' for item in prepared['payload']['content']):
             raise ValueError('当前项目禁止向模型发送参考视频，请移除前置、画质或动作视频后重试')
     requirements=shot.get('production_requirements')
+    text_scale_policy=(brief.get('scale_reference_policy') or {}) if isinstance(brief,dict) else {}
+    text_scale_authorized=(isinstance(text_scale_policy,dict)
+        and text_scale_policy.get('mode')=='text_only_user_authorized'
+        and text_scale_policy.get('project_id')==state['project_id']
+        and text_scale_policy.get('segment_id')==shot['id']
+        and isinstance(text_scale_policy.get('source'),str) and bool(text_scale_policy['source'].strip()))
     if requirements is not None:
         if not isinstance(requirements,dict):raise ValueError('镜头制作要求格式无效')
         subjects=requirements.get('visible_subjects')
@@ -221,7 +227,10 @@ def prepare(state,shot,library):
         if len(subjects)>=2:
             scale_ids=requirements.get('approved_scale_asset_ids') or []
             bound={r['asset_id'] for r in refs if r.get('kind')=='scale'}
-            if not scale_ids or not set(scale_ids).issubset(bound):raise ValueError('多物体场景需要绑定已确认的比例参考图')
+            if text_scale_authorized:
+                if bound or scale_ids:raise ValueError('用户要求仅文字描述比例，本次不能发送大小关系图')
+                quality_warnings.append('用户明确要求比例仅通过文字描述，本次未发送大小关系图。')
+            elif not scale_ids or not set(scale_ids).issubset(bound):raise ValueError('多物体场景需要绑定已确认的比例参考图')
     manifest=copy.deepcopy(prepared['payload'])
     audio_index=0
     for item in prepared['payload']['content']:
@@ -230,11 +239,12 @@ def prepare(state,shot,library):
         elif item['type']=='video_url' and depth and item['video_url']['url']=='depth:sha256:'+depth['sha256']:item['video_url']['url']=depth['url']
     if len(json.dumps(prepared['payload']).encode())>64*1024*1024:raise ValueError('视频请求超过64MB')
     snapshot={'production_requirements':copy.deepcopy(requirements),'project_video_input_forbidden':bool(isinstance(brief,dict) and brief.get('forbid_reference_video')),'project_id':state['project_id'],'shot_id':shot['id'],'request':manifest,'materials':sources,'style':style,'script':state['script'],'parent_video':parent_snapshot,'voice_reference':voice_snapshots[0] if voice_snapshots else None,'voice_references':voice_snapshots,'quality_profile':copy.deepcopy(quality),'quality_reference':baseline,'motion_reference':({k:depth[k] for k in ('name','sha256','duration','task_id')} if depth else None),'quality_warnings':quality_warnings,'shot_language':copy.deepcopy(shot_language),**({'opening_frame':opening,'opening_frame_usage':'strict_first_frame' if mode=='first_frame' else 'opening_reference',**({'planned_materials_not_sent':[{'name':r['name'],'version':r['version']} for r in planned_refs]} if mode=='first_frame' else {})} if opening else {}),**({'audio_mode':'provider_default'} if is_minimax else {})}
+    if text_scale_authorized:snapshot['scale_reference_policy']=copy.deepcopy(text_scale_policy)
     return prepared,snapshot
 
 def operate(server,state,action,p):
     import video_segments
-    if action in ('init-segments','create-segment','save-segment','delete-empty-segment','accept-segment','reject-candidate','add-opening-candidate','extract-opening-from-video','approve-opening'):return video_segments.operate(server,state,action,p)
+    if action in ('init-segments','create-segment','save-segment','delete-empty-segment','accept-segment','reject-candidate','add-opening-candidate','extract-opening-from-video','approve-opening','remove-opening-candidate'):return video_segments.operate(server,state,action,p)
     if action=='set-quality-baseline':
         task=next((t for t in state.get('tasks',[]) if t.get('id')==p.get('task_id')),None)
         _,sha=video_quality.accepted_file(state,server.ROOT,task)

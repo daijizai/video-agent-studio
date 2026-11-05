@@ -376,6 +376,27 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if self.headers.get('Origin') and self.headers['Origin'] != 'http://'+self.headers.get('Host',''):raise ValueError('拒绝跨站写入')
             n=int(self.headers.get('Content-Length','0'))
+            path,_,query=self.path.partition('?')
+            if path=='/api/timeline/import-upper':
+                import timeline_export
+                args=urllib.parse.parse_qs(query)
+                pid=int(args.get('project_id',['0'])[0])
+                if self.headers.get_content_type()!='application/octet-stream':raise ValueError('请选择MP4文件上传')
+                with LOCK:
+                    if pid!=current_project():raise ValueError('当前项目已切换，请刷新')
+                self.connection.settimeout(30)
+                upper,file=timeline_export.import_upper(ROOT,pid,args.get('name',[''])[0],self.rfile,n)
+                try:
+                    with LOCK:
+                        if pid!=current_project():raise ValueError('当前项目已切换，请重新导入')
+                        s=read(pid);brief=s.get('project_brief') or {}
+                        if not isinstance(brief,dict):brief={'summary':brief}
+                        s['project_brief']={**brief,'timeline_upper':upper}
+                        save(s)
+                except Exception:
+                    file.unlink(missing_ok=True)
+                    raise
+                return self.reply({'upper':upper})
             if n<0 or n>(28*1024*1024 if self.path=='/api/comfy/mask' else 17*1024*1024 if self.path in ('/api/assets/upload','/api/assets/style','/api/material-video/add-opening-candidate') else 2000000):raise ValueError('请求过大')
             p=json.loads(self.rfile.read(n) or b'{}')
             if not isinstance(p,dict):raise ValueError('请求须为对象')
@@ -419,7 +440,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if 'revision' in p and int(p['revision'])!=s['revision']:raise ValueError('项目已被其他窗口或CLI修改，请刷新后重试')
                 if action=='/api/timeline/start':
                     import timeline_export
-                    return self.reply(timeline_export.start(s,ROOT,p.get('clips'),p.get('include_music') is True))
+                    return self.reply(timeline_export.start(s,ROOT,p.get('clips'),p.get('include_music') is True,p.get('upper')))
                 if action=='/api/timeline/status':
                     import timeline_export
                     return self.reply(timeline_export.status(s['project_id'],p.get('job_id')))

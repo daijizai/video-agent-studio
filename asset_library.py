@@ -548,6 +548,20 @@ class AssetLibrary:
             self._bind(state, action, payload)
             return
         asset = self._asset(state, payload.get('asset_id'))
+        if action == 'delete':
+            if payload.get('name') != _version(asset)['name']:
+                raise ValueError('素材名称不匹配，请刷新后重试')
+            aid = asset['id']
+            if any(r.get('asset_id') == aid for item in state.get('shots', []) + state.get('video_segments', []) for r in item.get('asset_references', [])):
+                raise ValueError('素材仍被镜头引用，请先解除引用')
+            if any(a['id'] != aid and aid in _version(a).get('related_asset_ids', []) for a in assets(state)):
+                raise ValueError('素材仍被其他素材关联，请先解除关联')
+            state['material_assets'] = [a for a in state.get('material_assets', []) if a['id'] != aid]
+            cid = asset.get('character_id')
+            if cid:
+                state['characters'] = [c for c in state.get('characters', []) if c['id'] != cid]
+            # Keep original media and revision snapshots for historical references.
+            return
         if action == 'design':
             profile=asset_templates.normalize_profile(payload.get('profile'),asset['kind'])
             current=_version(asset)

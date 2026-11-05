@@ -25,6 +25,22 @@ class MaterialVideoTests(unittest.TestCase):
   self.shot['production_requirements']={'visible_subjects':['角色','飞机'],'approved_scale_asset_ids':['scale']}
   with self.assertRaisesRegex(ValueError,'绑定已确认的比例'):mv.prepare(self.state,self.shot,self.lib)
 
+ def test_explicit_text_only_scale_policy_is_scoped_and_snapshotted(self):
+  self.shot['production_requirements']={'visible_subjects':['角色','地标'],'approved_scale_asset_ids':[]}
+  policy={'mode':'text_only_user_authorized','project_id':4,'segment_id':'s','source':'用户明确不传比例图，只用文字描述'}
+  self.state['project_brief']={'scale_reference_policy':policy}
+  prepared,snapshot=mv.prepare(self.state,self.shot,self.lib)
+  self.assertEqual(snapshot['scale_reference_policy'],policy)
+  self.assertEqual(len([x for x in prepared['payload']['content'] if x['type']=='image_url']),1)
+  for key,value in [('project_id',5),('segment_id','other'),('source','')]:
+   changed=copy.deepcopy(policy);changed[key]=value;self.state['project_brief']['scale_reference_policy']=changed
+   with self.assertRaisesRegex(ValueError,'绑定已确认的比例'):mv.prepare(self.state,self.shot,self.lib)
+
+ def test_text_only_policy_rejects_scale_selected_in_requirements(self):
+  self.shot['production_requirements']={'visible_subjects':['角色','地标'],'approved_scale_asset_ids':['scale']}
+  self.state['project_brief']={'scale_reference_policy':{'mode':'text_only_user_authorized','project_id':4,'segment_id':'s','source':'用户要求不传图'}}
+  with self.assertRaisesRegex(ValueError,'不能发送大小关系图'):mv.prepare(self.state,self.shot,self.lib)
+
  def test_depth_motion_is_sent_and_redacted_in_snapshot(self):
   self.shot['use_depth_reference']=True
   self.lib.root=Path('/tmp')

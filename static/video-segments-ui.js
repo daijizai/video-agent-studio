@@ -60,11 +60,23 @@ const SegmentStudio=(()=>{
   video.onerror=()=>{overviewWasPlaying=false;toast('总览视频加载失败，已停止播放')};
   box.querySelectorAll('[data-overview-pick]').forEach(b=>b.onclick=()=>{overviewTime=0;overviewWasPlaying=false;selectClip(b.dataset.overviewPick,false)});
   selectClip(initial.segment.id,overviewWasPlaying,overviewTime);
-  TimelineEditor.mount(box,clips,project,brief().timeline_audio);
+  TimelineEditor.mount(box,clips,project,brief().timeline_audio,brief().timeline_upper,refresh);
  }
  function current(){return segments().find(s=>s.id===selected)}
  function capture(){const root=document.querySelector('#segment-editor');if(!root)return;drafts.set(root.dataset.segmentId,{name:root.querySelector('[data-segment-name]').value,material_video_prompt:root.querySelector('[data-segment-prompt]').value,duration:Number(root.querySelector('[data-segment-duration]').value),material_video_audio:root.querySelector('[data-segment-audio]').checked,material_video_parent_task_id:root.querySelector('[data-segment-parent]').value,reference_asset_ids:[...root.querySelectorAll('[data-segment-asset]:checked')].map(x=>x.value),reference_views_by_asset:Object.fromEntries([...root.querySelectorAll('[data-segment-asset]:checked')].filter(x=>root.querySelector('[data-asset-view-group="'+x.value+'"]')).map(x=>[x.value,[...root.querySelectorAll('[data-asset-view-group="'+x.value+'"] [data-asset-view]:checked')].map(v=>v.value)])),shot_language_ids:[...root.querySelectorAll('[data-selected-shot]')].map(x=>x.value),video_style:root.querySelector('[data-segment-style]').value,include_in_playlist:root.querySelector('[data-segment-playlist]').checked,use_depth_reference:root.querySelector('[data-segment-depth]').checked})}
  async function refresh(){const pid=state.project_id;const fresh=await api('state');if(state.project_id!==pid)return;state=fresh;health=await api('health');signature='';mount()}
+ function reconcileReferenceViews(){
+  const editor=document.querySelector('#segment-editor');if(!editor||!editor._savedRefViews)return;
+  const remote=(state.video_segments||[]).find(s=>s.id===editor.dataset.segmentId);
+  if(!remote||Number(editor.dataset.draftRevision)===Number(remote.draft_revision||0))return;
+  editor.querySelectorAll('[data-asset-view-group]').forEach(group=>{
+   const aid=group.dataset.assetViewGroup,inputs=[...group.querySelectorAll('[data-asset-view]')];
+   const current=inputs.filter(x=>x.checked).map(x=>x.value);
+   if(JSON.stringify(current)!==JSON.stringify(editor._savedRefViews[aid]||[]))return;
+   const ref=(remote.asset_references||[]).find(r=>r.asset_id===aid);if(!ref)return;
+   const ids=ref.views.map(v=>v.id);inputs.forEach(x=>x.checked=ids.includes(x.value));
+  });
+ }
  function mount(){
   if(location.hash!=='#tasks'||!document.querySelector('#segment-studio'))return;
   if(project!==state.project_id){project=state.project_id;selected=null;catalog=null;signature='';drafts.clear();candidates.clear();playing=false;overviewId=null;overviewTime=0;overviewWasPlaying=false}
@@ -73,8 +85,8 @@ const SegmentStudio=(()=>{
   }
   if(!catalog){if(initializing)return;initializing=true;act(async()=>{try{const pid=project;const [r,cr]=await Promise.all([fetch('/api/assets'),fetch('/api/workspace/creative-resources')]);const c=await r.json();if(!r.ok)throw Error(c.error);creative=cr.ok?await cr.json():{items:[]};if(project!==pid)return;catalog=c;signature='';mount()}finally{initializing=false}});return}
   const list=segments();if(!list.some(s=>s.id===selected))selected=list.find(s=>!s.legacy_task_ids?.length)?.id||list[0]?.id;
-  const key=JSON.stringify({project,selected,segments:state.video_segments,tasks:(state.tasks||[]).map(t=>[t.id,t.status,t.local_video,t.video_url]),candidate:candidates.get(selected)});
-  const host=document.querySelector('#segment-studio');if(signature===key&&host.querySelector('[data-new-segment]'))return;capture();captureOverview(host);signature=key;
+  const key=JSON.stringify({project,selected,segments:state.video_segments,tasks:(state.tasks||[]).map(t=>[t.id,t.status,t.local_video,t.video_url]),candidate:candidates.get(selected),upper:brief().timeline_upper?.url});
+  const host=document.querySelector('#segment-studio');if(signature===key&&host.querySelector('[data-new-segment]'))return;reconcileReferenceViews();capture();captureOverview(host);signature=key;
   const seg=current(),task=seg?selectedTask(seg):null,versions=seg?tasksOf(seg):[],draft=seg?(drafts.get(seg.id)||{...seg,video_style:brief().video_style||'',reference_asset_ids:(seg.asset_references||[]).map(r=>r.asset_id),shot_language_ids:(seg.shot_language||[]).map(r=>r.id)}):null;
   const history=list.filter(s=>s.id.startsWith('legacy-segment-')&&s.name.startsWith('历史测试 · '));
   const formal=list.filter(s=>!history.includes(s));
@@ -143,6 +155,8 @@ const SegmentStudio=(()=>{
   host.querySelector('[data-play-all]').onclick=()=>{if(playing){playing=false;host.querySelector('#video-stage video')?.pause();signature='';mount();return}const first=list.find(s=>s.include_in_playlist!==false&&playable(s));if(!first){toast('尚无可连播片段；历史测试默认不参与。');return}capture();playing=true;selected=first.id;signature='';mount();host.querySelector('#video-stage video')?.play().catch(()=>{playing=false;toast('请点击播放器开始播放')})};
   if(!seg)return;
   host.querySelector('#segment-editor').dataset.segmentId=seg.id;
+  host.querySelector('#segment-editor').dataset.draftRevision=String(seg.draft_revision||0);
+  host.querySelector('#segment-editor')._savedRefViews=Object.fromEntries([...host.querySelectorAll('[data-asset-view-group]')].map(group=>[group.dataset.assetViewGroup,[...group.querySelectorAll('[data-asset-view]:checked')].map(x=>x.value)]));
   host.querySelector('[data-segment-prompt]').value=draft.material_video_prompt||'';host.querySelector('[data-segment-style]').value=draft.video_style||'';
   if(task){
    const quality=state.project_brief?.video_quality,base=(state.tasks||[]).find(t=>t.id===quality?.baseline_task_id),review=task.quality_review;

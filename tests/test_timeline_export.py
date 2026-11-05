@@ -1,4 +1,4 @@
-import hashlib,subprocess,sys,tempfile,time,unittest
+import hashlib,io,subprocess,sys,tempfile,time,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import timeline_export,media_files
@@ -46,4 +46,43 @@ class TimelineExportTest(unittest.TestCase):
    self.assertEqual(result['status'],'completed',result)
    info=media_files.probe_video(folder/Path(result['url']).name)
    self.assertTrue(info['has_audio']);self.assertAlmostEqual(info['duration'],1,delta=.2)
+
+ def test_stacked_export_uses_uploaded_picture_and_project_soundtrack(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);folder=root/'assets'/'2';folder.mkdir(parents=True)
+   lower=folder/'clip.mp4';upper=root/'reference.mp4';music=folder/'sound.mp4'
+   for path,video in [(lower,'color=green:s=160x90:r=24:d=1'),(upper,'color=red:s=160x120:r=30:d=2')]:
+    subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i',video,'-c:v','libx264','-pix_fmt','yuv420p',str(path)],check=True)
+   subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i','sine=frequency=440:duration=1','-c:a','aac',str(music)],check=True)
+   with self.assertRaises(ValueError):timeline_export.import_upper(root,2,'bad.mp4',io.BytesIO(b'no'),2)
+   self.assertFalse(list(folder.glob('upper_*')))
+   with upper.open('rb') as stream:
+    imported,_=timeline_export.import_upper(root,2,upper.name,stream,upper.stat().st_size)
+   state={'project_id':2,'tasks':[{'id':'clip','status':'completed','local_video':'/media/2/clip.mp4'}],
+          'project_brief':{'timeline_audio':{'url':'/media/2/sound.mp4'},'timeline_upper':imported}}
+   clips=[{'task_id':'clip','start':0,'end':1}]
+   with self.assertRaises(ValueError):timeline_export.start(state,root,clips,True,{'url':imported['url'].replace('/2/','/3/'),'start':0})
+   with self.assertRaises(ValueError):timeline_export.start(state,root,clips,True,{'url':imported['url'],'start':1.5})
+   job=timeline_export.start(state,root,clips,True,{'url':imported['url'],'start':.5})
+   for _ in range(100):
+    result=timeline_export.status(2,job['id'])
+    if result['status']!='running':break
+    time.sleep(.05)
+   self.assertEqual(result['status'],'completed',result)
+   out=folder/Path(result['url']).name
+   info=media_files.probe_video(out)
+   self.assertEqual((info['video']['width'],info['video']['height']), (1080,1440))
+   self.assertTrue(info['has_audio'])
+   self.assertAlmostEqual(info['duration'],1,delta=.05)
+   frame=subprocess.check_output(['ffmpeg','-v','error','-i',str(out),'-vf','crop=2:1440:539:0,scale=2:1440','-frames:v','1','-pix_fmt','rgb24','-f','rawvideo','-'])
+   def pixel(row):return frame[row*6:row*6+3]
+   for row in (0,83,692,731,1340,1439):
+    self.assertLess(max(pixel(row)),10,'画面顶底和中间应为黑色留白')
+   for row in (84,691):
+    red,green,_=pixel(row)
+    self.assertGreater(red,green+70,'上半屏应为608行参考视频')
+   for row in (732,1339):
+    red,green,_=pixel(row)
+    self.assertGreater(green,red+40,'下半屏应为608行片段画面')
+
 if __name__=='__main__':unittest.main()

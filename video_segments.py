@@ -59,6 +59,17 @@ def operate(server,state,action,p):
         state['video_segments'].append(segment);server.save(state);return {'segment':segment}
     segment=next((s for s in state['video_segments'] if s['id']==p.get('segment_id')),None)
     if not segment:raise ValueError('视频片段不存在')
+    if action=='remove-opening-candidate':
+        fid=p.get('frame_id')
+        frame=next((f for f in segment.get('opening_frames',[]) if f['id']==fid),None)
+        if not frame:raise ValueError('开场画面候选不存在')
+        if frame.get('status')!='candidate':raise ValueError('只能移除未采用的开场候选')
+        segment['opening_frames']=[f for f in segment['opening_frames'] if f['id']!=fid]
+        if segment.get('opening_frame_id')==fid:
+            segment.pop('opening_frame_id',None);segment['video_input_mode']='references'
+        segment.pop('material_video_approval',None)
+        segment['draft_revision']=segment.get('draft_revision',0)+1
+        server.save(state);return {'removed':True,'frame_id':fid}
     if action=='delete-empty-segment':
         if segment.get('legacy_task_ids') or segment.get('opening_frames') or any(t.get('segment_id')==segment['id'] for t in state.get('tasks',[])):
             raise ValueError('含任务或开场画面的片段不能删除')
