@@ -40,6 +40,26 @@ class AssetHTTPTests(AssetFixture):
             with urllib.request.urlopen(request) as r:return r.status,json.load(r)
         except urllib.error.HTTPError as error:return error.code,json.load(error)
 
+    def test_import_character_targets_an_unselected_project_atomically(self):
+        original = self.state(1)
+        target = self.state(2)
+        tags = ('body_front', 'body_side', 'body_back')
+        view = {'filename': 'view.png', 'base64': base64.b64encode(png()).decode()}
+        payload = {'project_id': 2, 'name': '小黑白拟人版', 'views': dict.fromkeys(tags, view)}
+        invalid = {**payload, 'views': {**payload['views'], 'body_back': {**view, 'base64': 'bad'}}}
+        self.assertEqual(self.api('assets/import-character', invalid)[0], 400)
+        self.assertEqual(self.state(2), target)
+        self.assertFalse(list((self.root/'assets'/'2'/'library').glob('*.png')))
+
+        code, result = self.api('assets/import-character', payload)
+        self.assertEqual(code, 200)
+        asset = result['assets'][-1]
+        self.assertIsNone(asset['adopted_version'])
+        self.assertEqual([item['tag'] for item in asset['versions'][-1]['views']], list(tags))
+        self.assertEqual(server.current_project(), 1)
+        self.assertEqual(self.state(1), original)
+        self.assertEqual(self.api('assets/import-character', payload)[0], 400)
+
     def test_manage_upload_adopt_and_media_http_is_project_scoped(self):
         code,result=self.api('assets');self.assertEqual(code,200);self.assertEqual(len(result['assets']),1)
         original=copy.deepcopy(self.state())

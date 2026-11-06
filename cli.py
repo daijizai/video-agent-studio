@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Codex-friendly JSON client. The running HTTP backend owns all persistence and rules."""
-import argparse,getpass,json,sys,urllib.request,urllib.error,urllib.parse,uuid,warnings
+import argparse,base64,getpass,json,sys,urllib.request,urllib.error,urllib.parse,uuid,warnings
 from pathlib import Path
 
 def main():
@@ -9,6 +9,12 @@ def main():
     sub=parser.add_subparsers(dest='group',required=True)
     projects=sub.add_parser('projects').add_subparsers(dest='action',required=True)
     projects.add_parser('list');p=projects.add_parser('create');p.add_argument('title');p=projects.add_parser('select');p.add_argument('id',type=int)
+    materials=sub.add_parser('assets').add_subparsers(dest='action',required=True)
+    p=materials.add_parser('import-character',help='Import three full-body views into a specified project')
+    p.add_argument('--project-id',required=True,type=int)
+    p.add_argument('--name',required=True)
+    for angle in ('front','side','back'):
+        p.add_argument('--'+angle,required=True,type=Path)
     script=sub.add_parser('script').add_subparsers(dest='action',required=True)
     script.add_parser('get');p=script.add_parser('set');p.add_argument('--file',required=True,help='UTF-8 script text');p.add_argument('--continuity-file')
     for name in ('characters','shots'):
@@ -79,6 +85,16 @@ def main():
             if args.action=='list':result=api('projects')
             elif args.action=='create':result=api('projects/new',{'title':args.title})
             else:result=api('projects/switch',{'project_id':args.id})
+        elif group=='assets':
+            views={}
+            for angle in ('front','side','back'):
+                path=getattr(args,angle)
+                with path.open('rb') as stream:
+                    data=stream.read(12*1024*1024+1)
+                if len(data)>12*1024*1024:
+                    raise ValueError(f'图片超过12MB：{path.name}')
+                views['body_'+angle]={'filename':path.name,'base64':base64.b64encode(data).decode('ascii')}
+            result=api('assets/import-character',{'project_id':args.project_id,'name':args.name,'views':views})
         elif group=='provider':
             if args.action=='status':result=api('providers')
             else:

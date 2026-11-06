@@ -324,6 +324,8 @@ class AssetLibrary:
         if expected_revision is not None and (type(expected_revision) is not int or expected_revision != revision):
             raise ValueError('项目版本已变化，请刷新素材库后重试')
         state = json.loads(row[0]); state['project_id'] = project_id; state['revision'] = revision
+        if state.get('_deleted'):
+            raise ValueError('项目已删除')
         return state
 
     def _folder(self, project_id, create=False):
@@ -454,21 +456,25 @@ class AssetLibrary:
             state.setdefault('characters', []).append({'id': character_id, 'version': 1, 'color': '#729c9b', **values})
 
     def mutate(self, project_id, expected_revision, action, payload):
-        if type(expected_revision) is not int:
+        independent_import = action == 'import-character'
+        if not independent_import and type(expected_revision) is not int:
             raise ValueError('保存素材需要明确项目版本')
         created = []
         with self.lock, self._connect() as con:
             try:
-                con.execute('BEGIN IMMEDIATE'); state = self._load(con, project_id, expected_revision)
+                con.execute('BEGIN IMMEDIATE')
+                state = self._load(con, project_id, expected_revision, require_selected=not independent_import)
                 self._mutate(state, action, payload, created)
                 state.setdefault('material_events', []).append({'id': uuid.uuid4().hex, 'action': action,
                     'asset_id': payload.get('asset_id'), 'at': _now(), 'generation_called': False})
                 state.pop('_write_revision', None); state.pop('workflow', None)
                 body = json.dumps(state, ensure_ascii=False)
                 cursor = con.execute('INSERT INTO revisions(body,project_id) VALUES (?,?)', (body, project_id))
-                con.execute('UPDATE state SET body=? WHERE id=?', (body, project_id)); con.commit()
+                con.execute('UPDATE state SET body=? WHERE id=?', (body, project_id))
                 state['revision'] = cursor.lastrowid
-                return self._public(state)
+                result = self._public(state)
+                con.commit()
+                return result
             except Exception:
                 con.rollback()
                 for file in created:
@@ -476,6 +482,22 @@ class AssetLibrary:
                 raise
 
     def _mutate(self, state, action, payload, created):
+        if action == 'import-character':
+            name = _text(payload.get('name'), '名称', 80, True)
+            if any(a['kind'] == 'character' and _version(a)['name'] == name for a in assets(state)):
+                raise ValueError('项目中已有同名角色，请先核对素材库')
+            views = payload.get('views')
+            tags = ('body_front', 'body_side', 'body_back')
+            if not isinstance(views, dict) or set(views) != set(tags):
+                raise ValueError('请提供全身正面、侧面和背面三张图片')
+            if any(not isinstance(views[tag], dict) for tag in tags):
+                raise ValueError('图片数据格式无效')
+            self._mutate(state, 'create', {'kind': 'character', 'name': name}, created)
+            asset_id = state['material_assets'][-1]['id']
+            payload['asset_id'] = asset_id
+            for tag in tags:
+                self._mutate(state, 'upload', {**views[tag], 'asset_id': asset_id, 'view_tag': tag}, created)
+            return
         if action == 'record-codex-source':
             asset=self._asset(state,payload.get('asset_id'))
             ids=payload.get('view_ids')

@@ -397,7 +397,14 @@ class Handler(SimpleHTTPRequestHandler):
                     file.unlink(missing_ok=True)
                     raise
                 return self.reply({'upper':upper})
-            if n<0 or n>(28*1024*1024 if self.path=='/api/comfy/mask' else 17*1024*1024 if self.path in ('/api/assets/upload','/api/assets/style','/api/material-video/add-opening-candidate') else 2000000):raise ValueError('请求过大')
+            request_limits={
+                '/api/comfy/mask':28*1024*1024,
+                '/api/assets/upload':17*1024*1024,
+                '/api/assets/style':17*1024*1024,
+                '/api/material-video/add-opening-candidate':17*1024*1024,
+                '/api/assets/import-character':49*1024*1024,
+            }
+            if not 0<=n<=request_limits.get(self.path,2000000):raise ValueError('请求过大')
             p=json.loads(self.rfile.read(n) or b'{}')
             if not isinstance(p,dict):raise ValueError('请求须为对象')
             self._steps_project_id=p.get('project_id') if type(p.get('project_id')) is int else current_project()
